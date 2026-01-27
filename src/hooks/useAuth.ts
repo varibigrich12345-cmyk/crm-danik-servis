@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { User, Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
+import { translateError } from '@/utils/errorMessages'
 import type { Profile } from '@/types/database'
 
 export function useAuth() {
@@ -65,6 +66,9 @@ export function useAuth() {
 
   const signIn = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) {
+      error.message = translateError(error.message)
+    }
     return { error }
   }
 
@@ -74,6 +78,9 @@ export function useAuth() {
       password,
       options: { data: { full_name: fullName } },
     })
+    if (error) {
+      error.message = translateError(error.message)
+    }
     return { error }
   }
 
