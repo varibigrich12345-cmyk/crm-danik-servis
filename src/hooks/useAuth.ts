@@ -24,16 +24,18 @@ export function useAuth() {
 
       if (session?.user) {
         try {
-          const { data } = await supabase
+          const { data, error } = await supabase
             .from('profiles')
             .select('*')
             .eq('id', session.user.id)
             .maybeSingle()
 
+          console.log('Profile query result:', { data, error, userId: session.user.id })
+
           if (!mounted) return
           setProfile(data)
-        } catch {
-          // profile fetch failed
+        } catch (err) {
+          console.error('Profile fetch failed:', err)
         }
       }
 

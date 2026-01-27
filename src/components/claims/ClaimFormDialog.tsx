@@ -76,8 +76,10 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
 
   const onSubmit = async (data: ClaimFormData) => {
     console.log('Profile:', profile, 'User:', user)
-    if (!profile && !user) { toast.error('Не удалось определить пользователя'); return }
-    const userId = profile?.id || user?.id
+    if (!profile) {
+      toast.error('Профиль не загружен. Попробуйте перезайти в систему.')
+      return
+    }
     setIsLoading(true)
     try {
       if (isEditing && claim) {
@@ -105,8 +107,8 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
       } else {
         const insertPayload = {
           number: `CLAIM-${Date.now()}`,
-          created_by: userId!,
-          assigned_master_id: userId!,
+          created_by: profile.id,
+          assigned_master_id: profile.id,
           client_fio: data.client_fio,
           client_company: data.client_company || null,
           phone: data.phone,
