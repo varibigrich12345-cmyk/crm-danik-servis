@@ -42,7 +42,7 @@ interface ClaimFormDialogProps {
 }
 
 export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProps) {
-  const { profile, isAdmin } = useAuth()
+  const { profile, user, isAdmin } = useAuth()
   const [isLoading, setIsLoading] = useState(false)
   const [activeTab, setActiveTab] = useState<'info' | 'complaints' | 'works' | 'parts'>('info')
   const [complaints, setComplaints] = useState<Complaint[]>(claim?.complaints || [])
@@ -75,7 +75,9 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
   }, [carNumber, setValue])
 
   const onSubmit = async (data: ClaimFormData) => {
-    if (!profile) { toast.error('Не удалось определить пользователя'); return }
+    console.log('Profile:', profile, 'User:', user)
+    if (!profile && !user) { toast.error('Не удалось определить пользователя'); return }
+    const userId = profile?.id || user?.id
     setIsLoading(true)
     try {
       if (isEditing && claim) {
@@ -103,8 +105,8 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
       } else {
         const insertPayload = {
           number: `CLAIM-${Date.now()}`,
-          created_by: profile.id,
-          assigned_master_id: profile.id,
+          created_by: userId!,
+          assigned_master_id: userId!,
           client_fio: data.client_fio,
           client_company: data.client_company || null,
           phone: data.phone,
