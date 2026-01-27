@@ -32,7 +32,9 @@ export function AuthPage() {
           setIsLoading(false)
         } else {
           toast.success('Добро пожаловать!')
-          window.location.href = '/'
+          setTimeout(() => {
+            window.location.href = '/'
+          }, 500)
         }
       } else {
         if (!fullName.trim()) {
