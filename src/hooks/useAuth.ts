@@ -12,33 +12,36 @@ export function useAuth() {
   useEffect(() => {
     let mounted = true
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    async function initialize() {
+      console.log('Auth initialized')
+
+      const { data: { session } } = await supabase.auth.getSession()
+
       if (!mounted) return
-      
+
       setSession(session)
       setUser(session?.user ?? null)
-      
-      if (session?.user) {
-        ;(async () => {
-          try {
-            const { data } = await supabase
-              .from('profiles')
-              .select('*')
-              .eq('id', session.user.id)
-              .maybeSingle()
 
-            if (!mounted) return
-            setProfile(data)
-            setLoading(false)
-          } catch {
-            if (!mounted) return
-            setLoading(false)
-          }
-        })()
-      } else {
-        setLoading(false)
+      if (session?.user) {
+        try {
+          const { data } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', session.user.id)
+            .maybeSingle()
+
+          if (!mounted) return
+          setProfile(data)
+        } catch {
+          // profile fetch failed
+        }
       }
-    })
+
+      if (!mounted) return
+      setLoading(false)
+    }
+
+    initialize()
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => {
@@ -47,8 +50,8 @@ export function useAuth() {
         setUser(session?.user ?? null)
         if (!session) {
           setProfile(null)
-          setLoading(false)
         }
+        setLoading(false)
       }
     )
 
