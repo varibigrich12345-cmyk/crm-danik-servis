@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { useAuth } from '@/hooks/useAuth'
 import { Button } from '@/components/ui/button'
@@ -14,7 +13,6 @@ export function AuthPage() {
   const [fullName, setFullName] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   
-  const navigate = useNavigate()
   const { signUp } = useAuth()
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -35,7 +33,7 @@ export function AuthPage() {
         } else {
           toast.success('Добро пожаловать!')
           setTimeout(() => {
-            navigate('/')
+            window.location.href = '/'
           }, 500)
         }
       } else {

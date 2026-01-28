@@ -50,10 +50,13 @@ export function useAuth() {
       (_event, session) => {
         if (!mounted) return
         setSession(session)
+        if (!mounted) return
         setUser(session?.user ?? null)
         if (!session) {
+          if (!mounted) return
           setProfile(null)
         }
+        if (!mounted) return
         setLoading(false)
       }
     )

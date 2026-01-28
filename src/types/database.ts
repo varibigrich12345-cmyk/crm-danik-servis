@@ -124,6 +124,13 @@ export interface DictionaryItem {
   created_at: string
 }
 
+export interface WorksDictionaryItem {
+  id: string
+  name: string
+  category: string | null
+  created_at: string
+}
+
 // Supabase Database types
 export interface Database {
   public: {

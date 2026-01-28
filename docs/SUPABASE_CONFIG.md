@@ -9,6 +9,8 @@
 - claims (RLS отключен)
 - clients
 - client_vehicles
+- works_dictionary (RLS отключен) - справочник работ для автоподсказки
+- parts_manufacturers (RLS отключен) - справочник производителей запчастей
 
 ## Пользователь для тестирования
 - Email: admin@danik.servis.ru
