@@ -21,13 +21,11 @@ import {
   Package,
   Plus,
   Printer,
-  MessageCircle,
-  Send,
-  Download,
 } from 'lucide-react'
 import { cn, normalizeCarNumber, statusLabels } from '@/lib/utils'
-import { generatePDF, downloadPDF } from '@/utils/pdfGenerator'
-import type { Claim, ClaimStatus, Complaint, Work, Part, WorksDictionaryItem, DictionaryItem } from '@/types/database'
+import { PDFPreviewModal } from './PDFPreviewModal'
+import type { Claim, ClaimStatus, Complaint, Work, Part, WorksDictionaryItem, DictionaryItem, ClientReference } from '@/types/database'
+import { useSearchClients, useCreateClient } from '@/hooks/useClients'
 
 const claimSchema = z.object({
   client_fio: z.string().refine(
@@ -79,6 +77,13 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
   const [showSuggestions, setShowSuggestions] = useState<{ [key: string]: boolean }>({})
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState<{ [key: string]: number }>({})
   const suggestionRefs = useRef<{ [key: string]: HTMLDivElement | null }>({})
+  const [showPDFPreview, setShowPDFPreview] = useState(false)
+  const [clientSearchQuery, setClientSearchQuery] = useState('')
+  const [selectedClientId, setSelectedClientId] = useState<string | null>(null)
+  
+  // Поиск клиентов
+  const { data: clientSuggestions = [], isLoading: isSearchingClients } = useSearchClients(clientSearchQuery)
+  const createClientMutation = useCreateClient()
 
   const isEditing = !!claim
   const canEdit = !claim || claim.status !== 'completed' || isAdmin
@@ -312,6 +317,65 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
     setShowSuggestions({ ...showSuggestions, [key]: false })
   }
 
+  // Обработка ввода в поле ФИО или Телефон для поиска клиентов
+  const handleClientInput = (value: string, field: 'fio' | 'phone') => {
+    if (field === 'fio') {
+      setValue('client_fio', value)
+    } else {
+      setValue('phone', value)
+    }
+    
+    // Если клиент был выбран из списка, сбрасываем выбор при изменении
+    if (selectedClientId) {
+      setSelectedClientId(null)
+    }
+    
+    // Обновляем поисковый запрос
+    if (value.length >= 3) {
+      setClientSearchQuery(value)
+      setShowSuggestions({ ...showSuggestions, 'client': true })
+      setActiveSuggestionIndex({ ...activeSuggestionIndex, 'client': -1 })
+    } else {
+      setClientSearchQuery('')
+      setShowSuggestions({ ...showSuggestions, 'client': false })
+    }
+  }
+
+  // Обработка клавиатуры для автокомплита клиентов
+  const handleClientKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    const key = 'client'
+    if (!showSuggestions[key] || clientSuggestions.length === 0) return
+
+    const currentIndex = activeSuggestionIndex[key] ?? -1
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      const nextIndex = currentIndex < clientSuggestions.length - 1 ? currentIndex + 1 : 0
+      setActiveSuggestionIndex({ ...activeSuggestionIndex, [key]: nextIndex })
+      suggestionRefs.current[`client-${nextIndex}`]?.scrollIntoView({ block: 'nearest' })
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      const prevIndex = currentIndex > 0 ? currentIndex - 1 : clientSuggestions.length - 1
+      setActiveSuggestionIndex({ ...activeSuggestionIndex, [key]: prevIndex })
+      suggestionRefs.current[`client-${prevIndex}`]?.scrollIntoView({ block: 'nearest' })
+    } else if (e.key === 'Enter' && currentIndex >= 0 && currentIndex < clientSuggestions.length) {
+      e.preventDefault()
+      selectClient(clientSuggestions[currentIndex])
+    } else if (e.key === 'Escape') {
+      setShowSuggestions({ ...showSuggestions, [key]: false })
+    }
+  }
+
+  // Выбор клиента из списка
+  const selectClient = (client: ClientReference) => {
+    setValue('client_fio', client.name)
+    setValue('phone', client.phone || '')
+    setValue('client_company', client.company || '')
+    setSelectedClientId(client.id)
+    setShowSuggestions({ ...showSuggestions, 'client': false })
+    setClientSearchQuery('')
+  }
+
   const onSubmit = async (data: ClaimFormData) => {
     console.log('Profile:', profile, 'User:', user)
     if (!profile) {
@@ -343,6 +407,21 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
         if (error) throw error
         toast.success('Заявка обновлена')
       } else {
+        // Если клиент новый (не выбран из списка), добавляем в справочник
+        if (!selectedClientId && data.client_fio) {
+          try {
+            await createClientMutation.mutateAsync({
+              name: data.client_fio,
+              phone: data.phone || null,
+              company: data.client_company || null,
+              email: null,
+            })
+          } catch (error) {
+            // Игнорируем ошибку создания клиента, продолжаем создание заявки
+            console.warn('Не удалось добавить клиента в справочник:', error)
+          }
+        }
+
         const insertPayload = {
           number: `CLAIM-${Date.now()}`,
           created_by: profile.id,
@@ -378,55 +457,25 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
   const addWork = () => setWorks([...works, { name: '', side: null, position: null, quantity: 1, price: 0, complaintIndex: null }])
   const addPart = () => setParts([...parts, { article: null, name: '', side: null, position: null, quantity: 1, price: 0 }])
 
-  // Обработчики для печати и отправки
-  const handlePrint = () => {
+  // Обработчик для предпросмотра PDF
+  const handlePreview = () => {
     if (!claim) {
       toast.error('Сначала сохраните заявку')
       return
     }
-    const fullClaim: Claim = {
+    setShowPDFPreview(true)
+  }
+
+  // Получить полную заявку с актуальными данными
+  const getFullClaim = (): Claim | null => {
+    if (!claim) return null
+    return {
       ...claim,
       complaints,
       works,
       parts,
       status,
     }
-    generatePDF(fullClaim, true) // Предпросмотр
-  }
-
-  const handleDownload = () => {
-    if (!claim) {
-      toast.error('Сначала сохраните заявку')
-      return
-    }
-    const fullClaim: Claim = {
-      ...claim,
-      complaints,
-      works,
-      parts,
-      status,
-    }
-    downloadPDF(fullClaim) // Скачивание
-  }
-
-  const handleWhatsApp = () => {
-    if (!claim) {
-      toast.error('Сначала сохраните заявку')
-      return
-    }
-    const phone = claim.phone.replace(/\D/g, '')
-    const message = encodeURIComponent(`Ваш документ готов: Заявка №${claim.number}`)
-    window.open(`https://wa.me/${phone}?text=${message}`, '_blank')
-  }
-
-  const handleTelegram = () => {
-    if (!claim) {
-      toast.error('Сначала сохраните заявку')
-      return
-    }
-    const url = encodeURIComponent(window.location.href)
-    const text = encodeURIComponent(`Ваш документ готов: Заявка №${claim.number}`)
-    window.open(`https://t.me/share/url?url=${url}&text=${text}`, '_blank')
   }
 
   return (
@@ -452,9 +501,182 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
               <section>
                 <h3 className="font-medium mb-3 flex items-center gap-2"><User className="h-4 w-4" />Клиент</h3>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2"><Label htmlFor="client_fio">ФИО *</Label><Input id="client_fio" {...register('client_fio')} placeholder="Иванов Иван Иванович" disabled={!canEdit} />{errors.client_fio && <p className="text-sm text-destructive">{errors.client_fio.message}</p>}</div>
-                  <div className="space-y-2"><Label htmlFor="client_company">Компания</Label><Input id="client_company" {...register('client_company')} placeholder="ООО Название" disabled={!canEdit} /></div>
-                  <div className="space-y-2 sm:col-span-2"><Label htmlFor="phone">Телефон *</Label><div className="relative"><Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input id="phone" {...register('phone')} placeholder="+7 (900) 123-45-67" className="pl-9" disabled={!canEdit} /></div>{errors.phone && <p className="text-sm text-destructive">{errors.phone.message}</p>}</div>
+                  <div className="space-y-2 relative">
+                    <Label htmlFor="client_fio">ФИО *</Label>
+                    <Input
+                      id="client_fio"
+                      {...register('client_fio')}
+                      placeholder="Иванов Иван Иванович (начните вводить для автоподсказки)"
+                      value={watch('client_fio')}
+                      onChange={(e) => handleClientInput(e.target.value, 'fio')}
+                      onKeyDown={handleClientKeyDown}
+                      onFocus={() => {
+                        const value = watch('client_fio')
+                        if (value && value.length >= 3) {
+                          setClientSearchQuery(value)
+                          setShowSuggestions({ ...showSuggestions, 'client': true })
+                        }
+                      }}
+                      onBlur={() => {
+                        setTimeout(() => {
+                          setShowSuggestions({ ...showSuggestions, 'client': false })
+                        }, 200)
+                      }}
+                      disabled={!canEdit}
+                    />
+                    {showSuggestions['client'] && (clientSuggestions.length > 0 || isSearchingClients) && (
+                      <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-lg max-h-60 overflow-auto">
+                        {isSearchingClients ? (
+                          <div className="px-4 py-2 text-sm text-muted-foreground">Поиск...</div>
+                        ) : clientSuggestions.length > 0 ? (
+                          <>
+                            {clientSuggestions.map((client, index) => (
+                              <div
+                                key={client.id}
+                                ref={(el) => {
+                                  suggestionRefs.current[`client-${index}`] = el
+                                }}
+                                className={cn(
+                                  "px-4 py-2 cursor-pointer hover:bg-accent",
+                                  activeSuggestionIndex['client'] === index && "bg-accent"
+                                )}
+                                onMouseDown={(e) => {
+                                  e.preventDefault()
+                                  selectClient(client)
+                                }}
+                                onMouseEnter={() => {
+                                  setActiveSuggestionIndex({ ...activeSuggestionIndex, 'client': index })
+                                }}
+                              >
+                                <div className="font-medium">{client.name}</div>
+                                <div className="text-sm text-muted-foreground">
+                                  {client.phone && <span>{client.phone}</span>}
+                                  {client.phone && client.company && <span> — </span>}
+                                  {client.company && <span>{client.company}</span>}
+                                </div>
+                              </div>
+                            ))}
+                            <div
+                              className="px-4 py-2 cursor-pointer hover:bg-accent border-t text-sm text-primary font-medium"
+                              onMouseDown={(e) => {
+                                e.preventDefault()
+                                setShowSuggestions({ ...showSuggestions, 'client': false })
+                                setClientSearchQuery('')
+                              }}
+                            >
+                              <Plus className="h-4 w-4 inline mr-2" />
+                              Добавить нового клиента
+                            </div>
+                          </>
+                        ) : (
+                          <div
+                            className="px-4 py-2 cursor-pointer hover:bg-accent text-sm text-primary font-medium"
+                            onMouseDown={(e) => {
+                              e.preventDefault()
+                              setShowSuggestions({ ...showSuggestions, 'client': false })
+                              setClientSearchQuery('')
+                            }}
+                          >
+                            <Plus className="h-4 w-4 inline mr-2" />
+                            Добавить нового клиента
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {errors.client_fio && <p className="text-sm text-destructive">{errors.client_fio.message}</p>}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="client_company">Компания</Label>
+                    <Input id="client_company" {...register('client_company')} placeholder="ООО Название" disabled={!canEdit} />
+                  </div>
+                  <div className="space-y-2 sm:col-span-2 relative">
+                    <Label htmlFor="phone">Телефон *</Label>
+                    <div className="relative">
+                      <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        id="phone"
+                        {...register('phone')}
+                        placeholder="+7 (900) 123-45-67 (начните вводить для автоподсказки)"
+                        className="pl-9"
+                        value={watch('phone')}
+                        onChange={(e) => handleClientInput(e.target.value, 'phone')}
+                        onKeyDown={handleClientKeyDown}
+                        onFocus={() => {
+                          const value = watch('phone')
+                          if (value && value.length >= 3) {
+                            setClientSearchQuery(value)
+                            setShowSuggestions({ ...showSuggestions, 'client': true })
+                          }
+                        }}
+                        onBlur={() => {
+                          setTimeout(() => {
+                            setShowSuggestions({ ...showSuggestions, 'client': false })
+                          }, 200)
+                        }}
+                        disabled={!canEdit}
+                      />
+                    </div>
+                    {showSuggestions['client'] && (clientSuggestions.length > 0 || isSearchingClients) && (
+                      <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-lg max-h-60 overflow-auto">
+                        {isSearchingClients ? (
+                          <div className="px-4 py-2 text-sm text-muted-foreground">Поиск...</div>
+                        ) : clientSuggestions.length > 0 ? (
+                          <>
+                            {clientSuggestions.map((client, index) => (
+                              <div
+                                key={client.id}
+                                ref={(el) => {
+                                  suggestionRefs.current[`client-${index}`] = el
+                                }}
+                                className={cn(
+                                  "px-4 py-2 cursor-pointer hover:bg-accent",
+                                  activeSuggestionIndex['client'] === index && "bg-accent"
+                                )}
+                                onMouseDown={(e) => {
+                                  e.preventDefault()
+                                  selectClient(client)
+                                }}
+                                onMouseEnter={() => {
+                                  setActiveSuggestionIndex({ ...activeSuggestionIndex, 'client': index })
+                                }}
+                              >
+                                <div className="font-medium">{client.name}</div>
+                                <div className="text-sm text-muted-foreground">
+                                  {client.phone && <span>{client.phone}</span>}
+                                  {client.phone && client.company && <span> — </span>}
+                                  {client.company && <span>{client.company}</span>}
+                                </div>
+                              </div>
+                            ))}
+                            <div
+                              className="px-4 py-2 cursor-pointer hover:bg-accent border-t text-sm text-primary font-medium"
+                              onMouseDown={(e) => {
+                                e.preventDefault()
+                                setShowSuggestions({ ...showSuggestions, 'client': false })
+                                setClientSearchQuery('')
+                              }}
+                            >
+                              <Plus className="h-4 w-4 inline mr-2" />
+                              Добавить нового клиента
+                            </div>
+                          </>
+                        ) : (
+                          <div
+                            className="px-4 py-2 cursor-pointer hover:bg-accent text-sm text-primary font-medium"
+                            onMouseDown={(e) => {
+                              e.preventDefault()
+                              setShowSuggestions({ ...showSuggestions, 'client': false })
+                              setClientSearchQuery('')
+                            }}
+                          >
+                            <Plus className="h-4 w-4 inline mr-2" />
+                            Добавить нового клиента
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {errors.phone && <p className="text-sm text-destructive">{errors.phone.message}</p>}
+                  </div>
                 </div>
               </section>
               <section>
@@ -734,48 +956,16 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
         <div className="flex items-center justify-between gap-3 p-4 border-t bg-card shrink-0">
           <div className="flex items-center gap-2">
             {isEditing && claim && (
-              <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handlePrint}
-                  title="Предпросмотр PDF"
-                >
-                  <Printer className="h-4 w-4 mr-2" />
-                  <span className="hidden sm:inline">Печать</span>
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleDownload}
-                  title="Скачать PDF"
-                >
-                  <Download className="h-4 w-4 mr-2" />
-                  <span className="hidden sm:inline">Скачать</span>
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleWhatsApp}
-                  title="Отправить в WhatsApp"
-                >
-                  <MessageCircle className="h-4 w-4 mr-2" />
-                  <span className="hidden sm:inline">WhatsApp</span>
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleTelegram}
-                  title="Отправить в Telegram"
-                >
-                  <Send className="h-4 w-4 mr-2" />
-                  <span className="hidden sm:inline">Telegram</span>
-                </Button>
-              </>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handlePreview}
+                title="Предпросмотр PDF"
+              >
+                <Printer className="h-4 w-4 mr-2" />
+                <span className="hidden sm:inline">Предпросмотр</span>
+              </Button>
             )}
           </div>
           <div className="flex items-center gap-3">
@@ -798,6 +988,13 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
           </div>
         </div>
       </div>
+      {isEditing && claim && showPDFPreview && (
+        <PDFPreviewModal
+          claim={getFullClaim()!}
+          isOpen={showPDFPreview}
+          onClose={() => setShowPDFPreview(false)}
+        />
+      )}
     </div>
   )
 }

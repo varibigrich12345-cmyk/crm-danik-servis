@@ -24,6 +24,17 @@ export interface Client {
   updated_at: string
 }
 
+// Тип для справочника клиентов (для автокомплита)
+export interface ClientReference {
+  id: string
+  name: string
+  phone: string | null
+  company: string | null
+  email: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface ClientVehicle {
   id: string
   client_id: string
@@ -194,6 +205,11 @@ export interface Database {
         Row: DictionaryItem
         Insert: Pick<DictionaryItem, 'name'>
         Update: never
+      }
+      client_references: {
+        Row: ClientReference
+        Insert: Omit<ClientReference, 'id' | 'created_at' | 'updated_at'>
+        Update: Partial<Omit<ClientReference, 'id' | 'created_at' | 'updated_at'>>
       }
     }
   }
