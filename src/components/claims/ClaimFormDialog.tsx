@@ -23,9 +23,10 @@ import {
   Printer,
   MessageCircle,
   Send,
+  Download,
 } from 'lucide-react'
 import { cn, normalizeCarNumber, statusLabels } from '@/lib/utils'
-import { generatePDF } from '@/utils/pdfGenerator'
+import { generatePDF, downloadPDF } from '@/utils/pdfGenerator'
 import type { Claim, ClaimStatus, Complaint, Work, Part, WorksDictionaryItem, DictionaryItem } from '@/types/database'
 
 const claimSchema = z.object({
@@ -390,7 +391,22 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
       parts,
       status,
     }
-    generatePDF(fullClaim)
+    generatePDF(fullClaim, true) // Предпросмотр
+  }
+
+  const handleDownload = () => {
+    if (!claim) {
+      toast.error('Сначала сохраните заявку')
+      return
+    }
+    const fullClaim: Claim = {
+      ...claim,
+      complaints,
+      works,
+      parts,
+      status,
+    }
+    downloadPDF(fullClaim) // Скачивание
   }
 
   const handleWhatsApp = () => {
@@ -724,10 +740,20 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
                   variant="outline"
                   size="sm"
                   onClick={handlePrint}
-                  title="Печать PDF"
+                  title="Предпросмотр PDF"
                 >
                   <Printer className="h-4 w-4 mr-2" />
                   <span className="hidden sm:inline">Печать</span>
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleDownload}
+                  title="Скачать PDF"
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  <span className="hidden sm:inline">Скачать</span>
                 </Button>
                 <Button
                   type="button"

@@ -2,6 +2,23 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import type { Claim, Complaint, Work, Part } from '@/types/database'
 
+// Инициализация шрифта для кириллицы
+const initCyrillicFont = (doc: jsPDF) => {
+  // ВАЖНО: Для полной поддержки кириллицы нужно:
+  // 1. Добавить Roboto или DejaVu Sans шрифт в base64
+  // 2. Использовать addRobotoFont из './fonts/roboto'
+  //
+  // Временное решение: используем Helvetica (ограниченная поддержка кириллицы)
+  // Для продакшена обязательно добавьте кастомный шрифт!
+  
+  // Если шрифт Roboto добавлен, раскомментируйте:
+  // import { addRobotoFont } from './fonts/roboto'
+  // return addRobotoFont(doc)
+  
+  doc.setFont('helvetica')
+  return doc
+}
+
 // Реквизиты компании
 const COMPANY_INFO = {
   name: 'ООО «СЕРВИСТРАНСАВТО»',
@@ -36,8 +53,9 @@ const formatPrice = (price: number): string => {
 }
 
 // Генерация PDF для заявки (статус НЕ "Выполнено")
-export const generateClaimPDF = (claim: Claim): void => {
+export const generateClaimPDF = (claim: Claim, preview: boolean = true): void => {
   const doc = new jsPDF('p', 'mm', 'a4')
+  initCyrillicFont(doc)
   let yPos = 20
 
   // Заголовок
@@ -175,13 +193,22 @@ export const generateClaimPDF = (claim: Claim): void => {
   yPos += 5
   doc.text(`Дата: ${formatDate(new Date().toISOString())}`, 20, yPos)
 
-  // Открыть PDF в новой вкладке
-  doc.save(`Заявка_${claim.number}.pdf`)
+  // Предпросмотр или скачивание
+  if (preview) {
+    const pdfBlob = doc.output('blob')
+    const pdfUrl = URL.createObjectURL(pdfBlob)
+    window.open(pdfUrl, '_blank')
+    // Освобождаем память после загрузки
+    setTimeout(() => URL.revokeObjectURL(pdfUrl), 100)
+  } else {
+    doc.save(`Заявка_${claim.number}.pdf`)
+  }
 }
 
 // Генерация PDF для заказа-наряда (статус "Выполнено")
-export const generateOrderPDF = (claim: Claim): void => {
+export const generateOrderPDF = (claim: Claim, preview: boolean = true): void => {
   const doc = new jsPDF('p', 'mm', 'a4')
+  initCyrillicFont(doc)
   let yPos = 20
 
   // Заголовок
@@ -344,15 +371,28 @@ export const generateOrderPDF = (claim: Claim): void => {
   yPos += 5
   doc.text(`Дата: ${formatDate(new Date().toISOString())}`, 20, yPos)
 
-  // Открыть PDF в новой вкладке
-  doc.save(`Заказ-наряд_${claim.number}.pdf`)
+  // Предпросмотр или скачивание
+  if (preview) {
+    const pdfBlob = doc.output('blob')
+    const pdfUrl = URL.createObjectURL(pdfBlob)
+    window.open(pdfUrl, '_blank')
+    // Освобождаем память после загрузки
+    setTimeout(() => URL.revokeObjectURL(pdfUrl), 100)
+  } else {
+    doc.save(`Заказ-наряд_${claim.number}.pdf`)
+  }
 }
 
-// Главная функция для генерации PDF
-export const generatePDF = (claim: Claim): void => {
+// Главная функция для генерации PDF (предпросмотр)
+export const generatePDF = (claim: Claim, preview: boolean = true): void => {
   if (claim.status === 'completed') {
-    generateOrderPDF(claim)
+    generateOrderPDF(claim, preview)
   } else {
-    generateClaimPDF(claim)
+    generateClaimPDF(claim, preview)
   }
+}
+
+// Функция для скачивания PDF
+export const downloadPDF = (claim: Claim): void => {
+  generatePDF(claim, false)
 }
