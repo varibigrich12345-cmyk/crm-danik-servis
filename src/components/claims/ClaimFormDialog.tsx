@@ -84,13 +84,19 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null)
   const [partSearchQueries, setPartSearchQueries] = useState<{ [key: number]: string }>({})
   const [activePartIndex, setActivePartIndex] = useState<number | null>(null)
+  const [unknownPartsDialog, setUnknownPartsDialog] = useState<{
+    parts: { index: number; name: string; similar: PartDictionary[] }[]
+    formData: ClaimFormData | null
+  } | null>(null)
+  const [pendingFormData, setPendingFormData] = useState<ClaimFormData | null>(null)
 
   // Поиск клиентов
   const { data: clientSuggestions = [], isLoading: isSearchingClients } = useSearchClients(clientSearchQuery)
 
   // Поиск запчастей
   const currentPartSearch = activePartIndex !== null ? partSearchQueries[activePartIndex] || '' : ''
-  const { data: partSuggestions = [], isLoading: isSearchingParts } = useSearchParts(currentPartSearch)
+  const { data: partSearchResult = { exact: [], similar: [] }, isLoading: isSearchingParts } = useSearchParts(currentPartSearch)
+  const hasPartSuggestions = partSearchResult.exact.length > 0 || partSearchResult.similar.length > 0
   const createClientMutation = useCreateClient()
 
   const isEditing = !!claim
@@ -405,23 +411,24 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
   // Обработка клавиатуры для автокомплита запчастей
   const handlePartKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
     const key = `part-${index}`
-    if (!showSuggestions[key] || partSuggestions.length === 0) return
+    const allSuggestions = [...partSearchResult.exact, ...partSearchResult.similar]
+    if (!showSuggestions[key] || allSuggestions.length === 0) return
 
     const currentIndex = activeSuggestionIndex[key] ?? -1
 
     if (e.key === 'ArrowDown') {
       e.preventDefault()
-      const nextIndex = currentIndex < partSuggestions.length - 1 ? currentIndex + 1 : 0
+      const nextIndex = currentIndex < allSuggestions.length - 1 ? currentIndex + 1 : 0
       setActiveSuggestionIndex({ ...activeSuggestionIndex, [key]: nextIndex })
       suggestionRefs.current[`part-${index}-${nextIndex}`]?.scrollIntoView({ block: 'nearest' })
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
-      const prevIndex = currentIndex > 0 ? currentIndex - 1 : partSuggestions.length - 1
+      const prevIndex = currentIndex > 0 ? currentIndex - 1 : allSuggestions.length - 1
       setActiveSuggestionIndex({ ...activeSuggestionIndex, [key]: prevIndex })
       suggestionRefs.current[`part-${index}-${prevIndex}`]?.scrollIntoView({ block: 'nearest' })
-    } else if (e.key === 'Enter' && currentIndex >= 0 && currentIndex < partSuggestions.length) {
+    } else if (e.key === 'Enter' && currentIndex >= 0 && currentIndex < allSuggestions.length) {
       e.preventDefault()
-      selectPartSuggestion(index, partSuggestions[currentIndex])
+      selectPartSuggestion(index, allSuggestions[currentIndex])
     } else if (e.key === 'Escape') {
       setShowSuggestions({ ...showSuggestions, [key]: false })
     }
@@ -440,16 +447,68 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
     setActivePartIndex(null)
   }
 
-  const onSubmit = async (data: ClaimFormData) => {
-    console.log('Profile:', profile, 'User:', user)
-    if (!profile) {
-      toast.error('Профиль не загружен. Попробуйте перезайти в систему.')
-      return
+  // Скрытие подсказок при потере фокуса
+  const handlePartBlur = (index: number) => {
+    setTimeout(() => {
+      setShowSuggestions({ ...showSuggestions, [`part-${index}`]: false })
+    }, 200)
+  }
+
+  // Проверка запчастей перед сохранением
+  const checkUnknownParts = async (data: ClaimFormData): Promise<boolean> => {
+    if (parts.length === 0) return true
+
+    const partsToCheck = parts.filter(p => p.name.trim())
+    if (partsToCheck.length === 0) return true
+
+    // Получаем все запчасти из справочника для проверки
+    const { data: existingParts } = await supabase
+      .from('part_dictionary')
+      .select('name')
+
+    const existingNames = new Set(
+      (existingParts || []).map((p: { name: string }) => p.name.toLowerCase())
+    )
+
+    // Находим незнакомые запчасти
+    const unknownParts: { index: number; name: string; similar: PartDictionary[] }[] = []
+
+    for (let i = 0; i < parts.length; i++) {
+      const partName = parts[i].name.trim()
+      if (partName && !existingNames.has(partName.toLowerCase())) {
+        // Ищем похожие
+        const words = partName.toLowerCase().split(/\s+/).filter(w => w.length >= 2)
+        let similar: PartDictionary[] = []
+
+        if (words.length > 0) {
+          const conditions = words.map(word => `name.ilike.%${word}%`).join(',')
+          const { data: similarData } = await supabase
+            .from('part_dictionary')
+            .select('id, name, article, default_price')
+            .or(conditions)
+            .limit(5)
+
+          similar = (similarData || []) as PartDictionary[]
+        }
+
+        unknownParts.push({ index: i, name: partName, similar })
+      }
     }
+
+    if (unknownParts.length > 0) {
+      setUnknownPartsDialog({ parts: unknownParts, formData: data })
+      return false
+    }
+
+    return true
+  }
+
+  // Сохранение заявки (после подтверждения)
+  const saveClaimData = async (data: ClaimFormData, addNewParts: boolean) => {
     setIsLoading(true)
     try {
-      // Сохраняем новые запчасти в справочник
-      if (parts.length > 0) {
+      // Добавляем новые запчасти в справочник если подтверждено
+      if (addNewParts && parts.length > 0) {
         const partsToSave = parts
           .filter(p => p.name.trim())
           .map(p => ({
@@ -459,7 +518,6 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
           }))
 
         if (partsToSave.length > 0) {
-          // Используем upsert с onConflict для избежания дубликатов
           await (supabase
             .from('part_dictionary') as any)
             .upsert(partsToSave, { onConflict: 'name', ignoreDuplicates: true })
@@ -513,15 +571,14 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
               email: null,
             })
           } catch (error) {
-            // Игнорируем ошибку создания клиента, продолжаем создание заявки
             console.warn('Не удалось добавить клиента в справочник:', error)
           }
         }
 
         const insertPayload = {
           number: `CLAIM-${Date.now()}`,
-          created_by: profile.id,
-          assigned_master_id: profile.id,
+          created_by: profile!.id,
+          assigned_master_id: profile!.id,
           client_fio: data.client_fio,
           client_company: data.client_company || null,
           phone: data.phone,
@@ -546,7 +603,65 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
     } catch (error: any) {
       console.error('Error saving claim:', error)
       toast.error('Ошибка сохранения: ' + (error.message || 'Неизвестная ошибка'))
-    } finally { setIsLoading(false) }
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const onSubmit = async (data: ClaimFormData) => {
+    console.log('Profile:', profile, 'User:', user)
+    if (!profile) {
+      toast.error('Профиль не загружен. Попробуйте перезайти в систему.')
+      return
+    }
+
+    // Проверяем незнакомые запчасти
+    const canProceed = await checkUnknownParts(data)
+    if (!canProceed) {
+      setPendingFormData(data)
+      return
+    }
+
+    await saveClaimData(data, true)
+  }
+
+  // Выбор существующей запчасти из диалога
+  const handleSelectExistingPart = (partIndex: number, suggestion: PartDictionary) => {
+    const updated = [...parts]
+    updated[partIndex].name = suggestion.name
+    updated[partIndex].article = suggestion.article
+    updated[partIndex].price = suggestion.default_price || 0
+    setParts(updated)
+
+    // Убираем эту запчасть из списка незнакомых
+    if (unknownPartsDialog) {
+      const remainingParts = unknownPartsDialog.parts.filter(p => p.index !== partIndex)
+      if (remainingParts.length === 0) {
+        setUnknownPartsDialog(null)
+        // Продолжаем сохранение
+        if (pendingFormData) {
+          saveClaimData(pendingFormData, false)
+          setPendingFormData(null)
+        }
+      } else {
+        setUnknownPartsDialog({ ...unknownPartsDialog, parts: remainingParts })
+      }
+    }
+  }
+
+  // Добавить все как новые
+  const handleAddAllNewParts = () => {
+    setUnknownPartsDialog(null)
+    if (pendingFormData) {
+      saveClaimData(pendingFormData, true)
+      setPendingFormData(null)
+    }
+  }
+
+  // Отмена сохранения
+  const handleCancelSave = () => {
+    setUnknownPartsDialog(null)
+    setPendingFormData(null)
   }
 
   const addComplaint = () => setComplaints([...complaints, { name: '', side: null, position: null, quantity: 1 }])
@@ -984,9 +1099,9 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
                       }}
                       disabled={!canEdit}
                     />
-                    {showSuggestions[`work-${index}`] && suggestions.length > 0 && (
+                    {showSuggestions[`work-${index}`] && (suggestions[`work-${index}`] || []).length > 0 && (
                       <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-lg max-h-60 overflow-auto">
-                        {suggestions.map((item, suggestionIndex) => (
+                        {(suggestions[`work-${index}`] || []).map((item, suggestionIndex) => (
                           <div
                             key={item.id}
                             ref={(el) => {
@@ -1087,45 +1202,79 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
                             setShowSuggestions({ ...showSuggestions, [`part-${index}`]: true })
                           }
                         }}
-                        onBlur={() => {
-                          setTimeout(() => {
-                            setShowSuggestions({ ...showSuggestions, [`part-${index}`]: false })
-                          }, 200)
-                        }}
+                        onBlur={() => handlePartBlur(index)}
                         disabled={!canEdit}
                       />
-                      {showSuggestions[`part-${index}`] && activePartIndex === index && (partSuggestions.length > 0 || isSearchingParts) && (
+                      {showSuggestions[`part-${index}`] && activePartIndex === index && (hasPartSuggestions || isSearchingParts) && (
                         <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-lg max-h-60 overflow-auto">
                           {isSearchingParts ? (
                             <div className="px-4 py-2 text-sm text-muted-foreground">Поиск...</div>
-                          ) : partSuggestions.length > 0 ? (
-                            partSuggestions.map((suggestion, suggestionIndex) => (
-                              <div
-                                key={suggestion.id}
-                                ref={(el) => {
-                                  suggestionRefs.current[`part-${index}-${suggestionIndex}`] = el
-                                }}
-                                className={cn(
-                                  "px-4 py-2 cursor-pointer hover:bg-accent",
-                                  activeSuggestionIndex[`part-${index}`] === suggestionIndex && "bg-accent"
-                                )}
-                                onMouseDown={(e) => {
-                                  e.preventDefault()
-                                  selectPartSuggestion(index, suggestion)
-                                }}
-                                onMouseEnter={() => {
-                                  setActiveSuggestionIndex({ ...activeSuggestionIndex, [`part-${index}`]: suggestionIndex })
-                                }}
-                              >
-                                <div className="font-medium">{suggestion.name}</div>
-                                <div className="text-sm text-muted-foreground">
-                                  {suggestion.article && <span>Арт: {suggestion.article}</span>}
-                                  {suggestion.article && suggestion.default_price && <span> — </span>}
-                                  {suggestion.default_price && <span>{suggestion.default_price} руб.</span>}
+                          ) : (
+                            <>
+                              {partSearchResult.exact.map((suggestion, suggestionIndex) => (
+                                <div
+                                  key={suggestion.id}
+                                  ref={(el) => {
+                                    suggestionRefs.current[`part-${index}-${suggestionIndex}`] = el
+                                  }}
+                                  className={cn(
+                                    "px-4 py-2 cursor-pointer hover:bg-accent",
+                                    activeSuggestionIndex[`part-${index}`] === suggestionIndex && "bg-accent"
+                                  )}
+                                  onMouseDown={(e) => {
+                                    e.preventDefault()
+                                    selectPartSuggestion(index, suggestion)
+                                  }}
+                                  onMouseEnter={() => {
+                                    setActiveSuggestionIndex({ ...activeSuggestionIndex, [`part-${index}`]: suggestionIndex })
+                                  }}
+                                >
+                                  <div className="font-medium">{suggestion.name}</div>
+                                  <div className="text-sm text-muted-foreground">
+                                    {suggestion.article && <span>Арт: {suggestion.article}</span>}
+                                    {suggestion.article && suggestion.default_price && <span> — </span>}
+                                    {suggestion.default_price && <span>{suggestion.default_price} руб.</span>}
+                                  </div>
                                 </div>
-                              </div>
-                            ))
-                          ) : null}
+                              ))}
+                              {partSearchResult.similar.length > 0 && (
+                                <>
+                                  <div className="px-4 py-1.5 text-xs font-medium text-muted-foreground bg-muted/50 border-t">
+                                    Похожие записи
+                                  </div>
+                                  {partSearchResult.similar.map((suggestion, idx) => {
+                                    const suggestionIndex = partSearchResult.exact.length + idx
+                                    return (
+                                      <div
+                                        key={suggestion.id}
+                                        ref={(el) => {
+                                          suggestionRefs.current[`part-${index}-${suggestionIndex}`] = el
+                                        }}
+                                        className={cn(
+                                          "px-4 py-2 cursor-pointer hover:bg-accent",
+                                          activeSuggestionIndex[`part-${index}`] === suggestionIndex && "bg-accent"
+                                        )}
+                                        onMouseDown={(e) => {
+                                          e.preventDefault()
+                                          selectPartSuggestion(index, suggestion)
+                                        }}
+                                        onMouseEnter={() => {
+                                          setActiveSuggestionIndex({ ...activeSuggestionIndex, [`part-${index}`]: suggestionIndex })
+                                        }}
+                                      >
+                                        <div className="font-medium">{suggestion.name}</div>
+                                        <div className="text-sm text-muted-foreground">
+                                          {suggestion.article && <span>Арт: {suggestion.article}</span>}
+                                          {suggestion.article && suggestion.default_price && <span> — </span>}
+                                          {suggestion.default_price && <span>{suggestion.default_price} руб.</span>}
+                                        </div>
+                                      </div>
+                                    )
+                                  })}
+                                </>
+                              )}
+                            </>
+                          )}
                         </div>
                       )}
                     </div>
@@ -1207,6 +1356,51 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
           isOpen={showPDFPreview}
           onClose={() => setShowPDFPreview(false)}
         />
+      )}
+
+      {/* Диалог: Незнакомые запчасти при сохранении */}
+      {unknownPartsDialog && (
+        <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-background rounded-lg shadow-lg max-w-lg w-full p-4 max-h-[80vh] overflow-auto">
+            <h3 className="font-semibold mb-4">
+              Найдены незнакомые запчасти ({unknownPartsDialog.parts.length})
+            </h3>
+            <div className="space-y-4 mb-4">
+              {unknownPartsDialog.parts.map((item) => (
+                <div key={item.index} className="border rounded-lg p-3">
+                  <p className="font-medium mb-2">"{item.name}" не найдена в справочнике</p>
+                  {item.similar.length > 0 ? (
+                    <div>
+                      <p className="text-sm text-muted-foreground mb-2">Похожие записи:</p>
+                      <div className="space-y-1">
+                        {item.similar.map((suggestion) => (
+                          <div
+                            key={suggestion.id}
+                            className="flex items-center justify-between p-2 rounded hover:bg-accent cursor-pointer"
+                            onClick={() => handleSelectExistingPart(item.index, suggestion)}
+                          >
+                            <span className="text-sm">{suggestion.name}</span>
+                            <Button size="sm" variant="outline">Выбрать</Button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Похожих записей не найдено</p>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={handleCancelSave}>
+                Отмена
+              </Button>
+              <Button onClick={handleAddAllNewParts}>
+                Добавить все как новые
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
