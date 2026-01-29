@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { X, Download, Printer, MessageCircle, Send } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { toast } from 'sonner'
 import type { Claim } from '@/types/database'
 import { generatePDF, downloadPDF } from '@/utils/pdfGenerator'
 
@@ -56,18 +57,22 @@ export function PDFPreviewModal({ claim, isOpen, onClose }: PDFPreviewModalProps
     }
   }
 
-  const handleWhatsApp = () => {
+  const handleWhatsApp = async () => {
     if (!claim) return
+    await downloadPDF(claim)
     const phone = claim.phone.replace(/\D/g, '')
     const message = encodeURIComponent(`Ваш документ готов: ${claim.status === 'completed' ? 'Заказ-наряд' : 'Заявка'} №${claim.number}`)
     window.open(`https://wa.me/${phone}?text=${message}`, '_blank')
+    toast.info('PDF скачан. Прикрепите файл в чате WhatsApp')
   }
 
-  const handleTelegram = () => {
+  const handleTelegram = async () => {
     if (!claim) return
+    await downloadPDF(claim)
     const url = encodeURIComponent(window.location.href)
     const text = encodeURIComponent(`Ваш документ готов: ${claim.status === 'completed' ? 'Заказ-наряд' : 'Заявка'} №${claim.number}`)
     window.open(`https://t.me/share/url?url=${url}&text=${text}`, '_blank')
+    toast.info('PDF скачан. Прикрепите файл в чате Telegram')
   }
 
   if (!isOpen) return null
