@@ -21,12 +21,15 @@ import {
   Package,
   Plus,
   Printer,
+  Send,
+  Clock,
 } from 'lucide-react'
 import { cn, normalizeCarNumber, statusLabels } from '@/lib/utils'
 import { PDFPreviewModal } from './PDFPreviewModal'
 import type { Claim, ClaimStatus, Complaint, Work, Part, WorksDictionaryItem, DictionaryItem, ClientReference } from '@/types/database'
 import { useSearchClients, useCreateClient } from '@/hooks/useClients'
 import { useSearchParts, PartDictionary } from '@/hooks/useParts'
+import { useClaimRequests, useCreateRequest } from '@/hooks/useRequests'
 import { exportSingleClaimToCSV } from '@/utils/csvExport'
 
 const claimSchema = z.object({
@@ -99,8 +102,25 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
   const hasPartSuggestions = partSearchResult.exact.length > 0 || partSearchResult.similar.length > 0
   const createClientMutation = useCreateClient()
 
+  // Запросы по заявке
+  const { data: claimRequests = [] } = useClaimRequests(claim?.id)
+  const createRequestMutation = useCreateRequest()
+
+  // Найти активный запрос (pending)
+  const pendingDelegationRequest = claimRequests.find(r => r.type === 'delegation' && r.status === 'pending')
+  const pendingCorrectionRequest = claimRequests.find(r => r.type === 'correction' && r.status === 'pending')
+
   const isEditing = !!claim
-  const canEdit = !claim || claim.status !== 'completed' || isAdmin
+  // Логика прав редактирования:
+  // - Новая заявка: можно редактировать
+  // - Своя заявка (assigned_master_id = profile.id): можно, если не completed
+  // - Чужая заявка: нельзя (только просмотр), но можно запросить делегирование
+  // - Статус completed: только админ или allow_edit=true (после одобрения корректировки)
+  // - Админ может редактировать всё
+  const isOwnClaim = !claim || claim.assigned_master_id === profile?.id
+  const isCompleted = claim?.status === 'completed'
+  const hasEditPermission = claim?.allow_edit === true
+  const canEdit = isAdmin || (isOwnClaim && (!isCompleted || hasEditPermission))
 
   const { register, handleSubmit, formState: { errors, isValid }, setValue, watch } = useForm<ClaimFormData>({
     resolver: zodResolver(claimSchema),
@@ -1315,38 +1335,103 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
             </div>
           )}
         </form>
-        <div className="flex items-center justify-between gap-3 p-4 border-t bg-card shrink-0">
-          <div className="flex items-center gap-2">
-            {isEditing && claim && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handlePreview}
-                title="Предпросмотр PDF"
-              >
-                <Printer className="h-4 w-4 mr-2" />
-                <span className="hidden sm:inline">Предпросмотр</span>
-              </Button>
-            )}
-          </div>
-          <div className="flex items-center gap-3">
-            <Button type="button" variant="outline" onClick={onClose}>
-              Отмена
-            </Button>
-            <Button onClick={handleSubmit(onSubmit)} disabled={isLoading || !canEdit || !isValid}>
-              {isLoading ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Сохранение...
-                </>
-              ) : (
-                <>
-                  <Save className="h-4 w-4 mr-2" />
-                  Сохранить
-                </>
+        <div className="flex flex-col gap-3 p-4 border-t bg-card shrink-0">
+          {/* Статус запросов */}
+          {isEditing && claim && !isAdmin && (pendingDelegationRequest || pendingCorrectionRequest) && (
+            <div className="flex flex-wrap gap-2">
+              {pendingDelegationRequest && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                  <Clock className="h-3 w-3" />
+                  Запрос на делегирование ожидает
+                </span>
               )}
-            </Button>
+              {pendingCorrectionRequest && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                  <Clock className="h-3 w-3" />
+                  Запрос на корректировку ожидает
+                </span>
+              )}
+            </div>
+          )}
+
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              {isEditing && claim && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handlePreview}
+                  title="Предпросмотр PDF"
+                >
+                  <Printer className="h-4 w-4 mr-2" />
+                  <span className="hidden sm:inline">Предпросмотр</span>
+                </Button>
+              )}
+
+              {/* Кнопка запроса делегирования — если чужая заявка и не админ */}
+              {isEditing && claim && !isAdmin && !isOwnClaim && !pendingDelegationRequest && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (profile?.id) {
+                      createRequestMutation.mutate({
+                        claimId: claim.id,
+                        type: 'delegation',
+                        requestedBy: profile.id,
+                      })
+                    }
+                  }}
+                  disabled={createRequestMutation.isPending}
+                >
+                  <Send className="h-4 w-4 mr-2" />
+                  Запросить делегирование
+                </Button>
+              )}
+
+              {/* Кнопка запроса корректировки — если выполненная заявка и не админ */}
+              {isEditing && claim && !isAdmin && isCompleted && !hasEditPermission && !pendingCorrectionRequest && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (profile?.id) {
+                      createRequestMutation.mutate({
+                        claimId: claim.id,
+                        type: 'correction',
+                        requestedBy: profile.id,
+                      })
+                    }
+                  }}
+                  disabled={createRequestMutation.isPending}
+                >
+                  <Send className="h-4 w-4 mr-2" />
+                  Запросить корректировку
+                </Button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Button type="button" variant="outline" onClick={onClose}>
+                Отмена
+              </Button>
+              <Button onClick={handleSubmit(onSubmit)} disabled={isLoading || !canEdit || !isValid}>
+                {isLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Сохранение...
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4 mr-2" />
+                    Сохранить
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
         </div>
       </div>

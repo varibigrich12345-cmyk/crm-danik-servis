@@ -25,17 +25,17 @@ export function ClaimsPage() {
   const [showNewClaimDialog, setShowNewClaimDialog] = useState(false)
   const [editingClaim, setEditingClaim] = useState<Claim | null>(null)
 
-  // Запрос заявок
+  // Запрос заявок (мастер видит ВСЕ заявки)
   const { data: claims, isLoading, refetch, isRefetching } = useQuery({
-    queryKey: ['claims', showMyOnly, statusFilter, profile?.id],
+    queryKey: ['claims', showMyOnly, statusFilter, profile?.id, isAdmin],
     queryFn: async () => {
       let query = supabase
         .from('claims')
         .select('*')
         .order('created_at', { ascending: false })
 
-      // Фильтр по мастеру (для мастеров только свои)
-      if (!isAdmin || showMyOnly) {
+      // Фильтр "Мои/Все" работает только для админа
+      if (isAdmin && showMyOnly) {
         query = query.eq('assigned_master_id', profile?.id || '')
       }
 
@@ -142,16 +142,18 @@ export function ClaimsPage() {
           <RefreshCw className={cn('h-4 w-4', isRefetching && 'animate-spin')} />
         </Button>
 
-        {/* Экспорт CSV */}
-        <Button
-          variant="outline"
-          onClick={() => { if (filteredClaims) exportClaimsToCSV(filteredClaims) }}
-          disabled={!filteredClaims || filteredClaims.length === 0}
-          title="Экспорт в CSV"
-        >
-          <Download className="h-4 w-4 md:mr-2" />
-          <span className="hidden md:inline">Экспорт</span>
-        </Button>
+        {/* Экспорт CSV — только для админа */}
+        {isAdmin && (
+          <Button
+            variant="outline"
+            onClick={() => { if (filteredClaims) exportClaimsToCSV(filteredClaims) }}
+            disabled={!filteredClaims || filteredClaims.length === 0}
+            title="Экспорт в CSV"
+          >
+            <Download className="h-4 w-4 md:mr-2" />
+            <span className="hidden md:inline">Экспорт</span>
+          </Button>
+        )}
       </div>
 
       {/* Список заявок */}
@@ -184,7 +186,7 @@ export function ClaimsPage() {
                   <th className="text-left p-3 font-medium">Авто</th>
                   <th className="text-left p-3 font-medium">Госномер</th>
                   <th className="text-left p-3 font-medium">Статус</th>
-                  <th className="text-center p-3 font-medium w-12"></th>
+                  {isAdmin && <th className="text-center p-3 font-medium w-12"></th>}
                 </tr>
               </thead>
               <tbody>
@@ -209,18 +211,21 @@ export function ClaimsPage() {
                         {statusLabels[claim.status]}
                       </span>
                     </td>
-                    <td className="p-3 text-center">
-                      <button
-                        className="p-1.5 rounded hover:bg-muted transition-colors"
-                        title="Скачать CSV"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          exportSingleClaimToCSV(claim)
-                        }}
-                      >
-                        <Download className="h-4 w-4 text-muted-foreground" />
-                      </button>
-                    </td>
+                    {/* CSV — только для админа */}
+                    {isAdmin && (
+                      <td className="p-3 text-center">
+                        <button
+                          className="p-1.5 rounded hover:bg-muted transition-colors"
+                          title="Скачать CSV"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            exportSingleClaimToCSV(claim)
+                          }}
+                        >
+                          <Download className="h-4 w-4 text-muted-foreground" />
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

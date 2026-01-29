@@ -1,6 +1,23 @@
 export type UserRole = 'admin' | 'master'
 export type ClaimStatus = 'draft' | 'agreed' | 'in_progress' | 'completed'
 export type RequestStatus = 'none' | 'pending' | 'approved' | 'rejected'
+export type RequestType = 'delegation' | 'correction'
+
+// Запрос на делегирование или корректировку
+export interface Request {
+  id: string
+  claim_id: string
+  type: RequestType
+  status: RequestStatus
+  requested_by: string
+  requested_by_name?: string
+  comment: string | null
+  resolved_by: string | null
+  resolved_at: string | null
+  created_at: string
+  // Связанные данные
+  claim?: Claim
+}
 
 export interface Profile {
   id: string
@@ -99,6 +116,7 @@ export interface Claim {
   is_exported: boolean
   exported_at: string | null
   csv_data: string | null
+  allow_edit: boolean // Временное разрешение на редактирование (после одобрения корректировки)
   created_at: string
   updated_at: string
   completed_at: string | null

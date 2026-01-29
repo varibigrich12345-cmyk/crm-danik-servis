@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
+import { usePendingRequestsCount, useRequests, useResolveRequest } from '@/hooks/useRequests'
 import { Button } from '@/components/ui/button'
 import {
   Wrench,
@@ -12,6 +13,10 @@ import {
   FileText,
   Settings,
   Users,
+  Check,
+  XCircle,
+  UserPlus,
+  Edit3,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -21,13 +26,29 @@ interface LayoutProps {
 
 export function Layout({ children }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [requestsPanelOpen, setRequestsPanelOpen] = useState(false)
   const { profile, signOut, isAdmin } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
 
+  // Запросы (только для админа)
+  const { data: pendingCount = 0 } = usePendingRequestsCount()
+  const { data: pendingRequests = [] } = useRequests('pending')
+  const resolveRequestMutation = useResolveRequest()
+
   const handleSignOut = async () => {
     await signOut()
     navigate('/auth')
+  }
+
+  const handleResolve = (requestId: string, status: 'approved' | 'rejected') => {
+    if (profile?.id) {
+      resolveRequestMutation.mutate({
+        requestId,
+        status,
+        resolvedBy: profile.id,
+      })
+    }
   }
 
   return (
@@ -54,12 +75,90 @@ export function Layout({ children }: LayoutProps) {
 
           {/* Правая часть */}
           <div className="flex items-center gap-2">
-            {/* Уведомления */}
-            <Button variant="ghost" size="icon" className="relative">
-              <Bell className="h-5 w-5" />
-              {/* Бейдж с количеством */}
-              {/* <span className="absolute -top-1 -right-1 w-5 h-5 bg-destructive text-white text-xs rounded-full flex items-center justify-center">3</span> */}
-            </Button>
+            {/* Уведомления/Запросы — только для админа */}
+            {isAdmin && (
+              <div className="relative">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="relative"
+                  onClick={() => setRequestsPanelOpen(!requestsPanelOpen)}
+                >
+                  <Bell className="h-5 w-5" />
+                  {pendingCount > 0 && (
+                    <span className="absolute -top-1 -right-1 w-5 h-5 bg-destructive text-white text-xs rounded-full flex items-center justify-center">
+                      {pendingCount > 9 ? '9+' : pendingCount}
+                    </span>
+                  )}
+                </Button>
+
+                {/* Выпадающая панель запросов */}
+                {requestsPanelOpen && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setRequestsPanelOpen(false)}
+                    />
+                    <div className="absolute right-0 top-full mt-2 w-80 bg-card border rounded-lg shadow-lg z-50 max-h-96 overflow-auto">
+                      <div className="p-3 border-b font-medium">
+                        Запросы ({pendingCount})
+                      </div>
+                      {pendingRequests.length === 0 ? (
+                        <div className="p-4 text-center text-muted-foreground text-sm">
+                          Нет новых запросов
+                        </div>
+                      ) : (
+                        <div className="divide-y">
+                          {pendingRequests.map((request) => (
+                            <div key={request.id} className="p-3">
+                              <div className="flex items-start gap-2 mb-2">
+                                {request.type === 'delegation' ? (
+                                  <UserPlus className="h-4 w-4 text-blue-500 mt-0.5" />
+                                ) : (
+                                  <Edit3 className="h-4 w-4 text-orange-500 mt-0.5" />
+                                )}
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-medium">
+                                    {request.type === 'delegation' ? 'Делегирование' : 'Корректировка'}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground truncate">
+                                    Заявка: {request.claim?.number || 'N/A'}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    От: {request.requested_by_name}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="flex-1 h-7 text-xs"
+                                  onClick={() => handleResolve(request.id, 'rejected')}
+                                  disabled={resolveRequestMutation.isPending}
+                                >
+                                  <XCircle className="h-3 w-3 mr-1" />
+                                  Отклонить
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  className="flex-1 h-7 text-xs"
+                                  onClick={() => handleResolve(request.id, 'approved')}
+                                  disabled={resolveRequestMutation.isPending}
+                                >
+                                  <Check className="h-3 w-3 mr-1" />
+                                  Одобрить
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
 
             {/* Профиль */}
             <div className="hidden md:flex items-center gap-2 pl-2 border-l">
