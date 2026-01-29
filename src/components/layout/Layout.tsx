@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { Button } from '@/components/ui/button'
 import {
@@ -11,6 +11,7 @@ import {
   User,
   FileText,
   Settings,
+  Users,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -22,6 +23,7 @@ export function Layout({ children }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const { profile, signOut, isAdmin } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
 
   const handleSignOut = async () => {
     await signOut()
@@ -87,9 +89,18 @@ export function Layout({ children }: LayoutProps) {
               <NavItem
                 icon={<FileText className="h-5 w-5" />}
                 label="Заявки"
-                active
+                active={location.pathname === '/'}
                 onClick={() => {
                   navigate('/')
+                  setSidebarOpen(false)
+                }}
+              />
+              <NavItem
+                icon={<Users className="h-5 w-5" />}
+                label="Клиенты"
+                active={location.pathname === '/clients'}
+                onClick={() => {
+                  navigate('/clients')
                   setSidebarOpen(false)
                 }}
               />

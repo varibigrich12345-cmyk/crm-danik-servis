@@ -3,6 +3,7 @@ import { Toaster } from 'sonner'
 import { useAuth } from '@/hooks/useAuth'
 import { AuthPage } from '@/pages/AuthPage'
 import { ClaimsPage } from '@/pages/ClaimsPage'
+import { ClientsPage } from '@/pages/ClientsPage'
 import { Layout } from '@/components/layout/Layout'
 import { LoadingScreen } from '@/components/ui/loading-screen'
 
@@ -38,6 +39,14 @@ function App() {
           element={
             <ProtectedRoute>
               <ClaimsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/clients"
+          element={
+            <ProtectedRoute>
+              <ClientsPage />
             </ProtectedRoute>
           }
         />
