@@ -27,7 +27,7 @@ export const imageToBase64 = (url: string): Promise<string> => {
       }
     };
     
-    img.onerror = (error) => {
+    img.onerror = () => {
       reject(new Error(`Ошибка загрузки изображения: ${url}`));
     };
     

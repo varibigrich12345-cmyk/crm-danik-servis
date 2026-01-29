@@ -57,8 +57,8 @@ export const useCreateClient = () => {
       company: string | null
       email?: string | null
     }) => {
-      const { data, error } = await supabase
-        .from('clients')
+      const { data, error } = await (supabase
+        .from('clients') as any)
         .insert({
           name: client.name,
           phone: client.phone || null,

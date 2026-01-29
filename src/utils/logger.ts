@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 // Логгер для отладки - легко включить/выключить
 
 const isDev = import.meta.env.DEV

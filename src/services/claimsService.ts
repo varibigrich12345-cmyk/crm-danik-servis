@@ -30,25 +30,25 @@ export const claimsService = {
 
   // Создать заявку
   async create(claim: Partial<Claim>) {
-    const { data, error } = await supabase
-      .from('claims')
+    const { data, error } = await (supabase
+      .from('claims') as any)
       .insert(claim)
       .select()
       .single()
-    
+
     if (error) throw error
     return data
   },
 
   // Обновить заявку
   async update(id: string, updates: Partial<Claim>) {
-    const { data, error } = await supabase
-      .from('claims')
+    const { data, error } = await (supabase
+      .from('claims') as any)
       .update(updates)
       .eq('id', id)
       .select()
       .single()
-    
+
     if (error) throw error
     return data
   }

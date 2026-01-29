@@ -199,7 +199,7 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
       suggestionRefs.current[`complaint-${index}-${prevIndex}`]?.scrollIntoView({ block: 'nearest' })
     } else if (e.key === 'Enter' && currentIndex >= 0 && currentIndex < fieldSuggestions.length) {
       e.preventDefault()
-      selectComplaintSuggestion(index, fieldSuggestions[currentIndex])
+      selectComplaintSuggestion(index, fieldSuggestions[currentIndex] as WorksDictionaryItem)
     } else if (e.key === 'Escape') {
       setShowSuggestions({ ...showSuggestions, [key]: false })
     }
@@ -265,7 +265,7 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
       suggestionRefs.current[`work-${index}-${prevIndex}`]?.scrollIntoView({ block: 'nearest' })
     } else if (e.key === 'Enter' && currentIndex >= 0 && currentIndex < fieldSuggestions.length) {
       e.preventDefault()
-      selectWorkSuggestion(index, fieldSuggestions[currentIndex])
+      selectWorkSuggestion(index, fieldSuggestions[currentIndex] as WorksDictionaryItem)
     } else if (e.key === 'Escape') {
       setShowSuggestions({ ...showSuggestions, [key]: false })
     }
@@ -998,14 +998,14 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
                             )}
                             onMouseDown={(e) => {
                               e.preventDefault()
-                              selectComplaintSuggestion(index, item)
+                              selectComplaintSuggestion(index, item as WorksDictionaryItem)
                             }}
                             onMouseEnter={() => {
                               setActiveSuggestionIndex({ ...activeSuggestionIndex, [`complaint-${index}`]: suggestionIndex })
                             }}
                           >
                             <div className="font-medium">{item.name}</div>
-                            {item.category && (
+                            {'category' in item && item.category && (
                               <div className="text-xs text-muted-foreground">{item.category}</div>
                             )}
                           </div>
@@ -1113,14 +1113,14 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
                             )}
                             onMouseDown={(e) => {
                               e.preventDefault()
-                              selectWorkSuggestion(index, item)
+                              selectWorkSuggestion(index, item as WorksDictionaryItem)
                             }}
                             onMouseEnter={() => {
                               setActiveSuggestionIndex({ ...activeSuggestionIndex, [`work-${index}`]: suggestionIndex })
                             }}
                           >
                             <div className="font-medium">{item.name}</div>
-                            {item.category && (
+                            {'category' in item && item.category && (
                               <div className="text-xs text-muted-foreground">{item.category}</div>
                             )}
                           </div>

@@ -1,3 +1,4 @@
+// @ts-ignore
 import pdfMake from 'pdfmake/build/pdfmake'
 import type { Claim, Complaint, Work, Part } from '@/types/database'
 import { imageToBase64 } from './imageToBase64'

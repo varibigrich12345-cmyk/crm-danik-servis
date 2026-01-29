@@ -1,4 +1,11 @@
 // Roboto Regular font in base64 format for jsPDF
+
+// Тип для jsPDF (если библиотека не установлена)
+interface jsPDF {
+  addFileToVFS(filename: string, data: string): void
+  addFont(filename: string, fontName: string, fontStyle: string): void
+  setFont(fontName: string): void
+}
 // 
 // ИНСТРУКЦИЯ ПО ДОБАВЛЕНИЮ ШРИФТА:
 // 1. Скачайте Roboto-Regular.ttf с https://fonts.google.com/specimen/Roboto

@@ -36,7 +36,7 @@ export function ClaimsPage() {
 
       // Фильтр по мастеру (для мастеров только свои)
       if (!isAdmin || showMyOnly) {
-        query = query.eq('assigned_master_id', profile?.id)
+        query = query.eq('assigned_master_id', profile?.id || '')
       }
 
       // Фильтр по статусу
