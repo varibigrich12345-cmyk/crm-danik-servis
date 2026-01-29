@@ -7,14 +7,15 @@ import { Input } from '@/components/ui/input'
 import {
   Plus,
   Search,
-  Filter,
   RefreshCw,
   FileText,
   Loader2,
+  Download,
 } from 'lucide-react'
 import { cn, formatDate, statusLabels, statusColors, carNumberToSearchVariants } from '@/lib/utils'
 import type { Claim } from '@/types/database'
 import { ClaimFormDialog } from '@/components/claims/ClaimFormDialog'
+import { exportClaimsToCSV } from '@/utils/csvExport'
 
 export function ClaimsPage() {
   const { profile, isAdmin } = useAuth()
@@ -139,6 +140,17 @@ export function ClaimsPage() {
           disabled={isRefetching}
         >
           <RefreshCw className={cn('h-4 w-4', isRefetching && 'animate-spin')} />
+        </Button>
+
+        {/* Экспорт CSV */}
+        <Button
+          variant="outline"
+          onClick={() => { if (filteredClaims) exportClaimsToCSV(filteredClaims) }}
+          disabled={!filteredClaims || filteredClaims.length === 0}
+          title="Экспорт в CSV"
+        >
+          <Download className="h-4 w-4 md:mr-2" />
+          <span className="hidden md:inline">Экспорт</span>
         </Button>
       </div>
 
