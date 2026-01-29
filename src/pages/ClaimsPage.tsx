@@ -15,7 +15,7 @@ import {
 import { cn, formatDate, statusLabels, statusColors, carNumberToSearchVariants } from '@/lib/utils'
 import type { Claim } from '@/types/database'
 import { ClaimFormDialog } from '@/components/claims/ClaimFormDialog'
-import { exportClaimsToCSV } from '@/utils/csvExport'
+import { exportClaimsToCSV, exportSingleClaimToCSV } from '@/utils/csvExport'
 
 export function ClaimsPage() {
   const { profile, isAdmin } = useAuth()
@@ -184,6 +184,7 @@ export function ClaimsPage() {
                   <th className="text-left p-3 font-medium">Авто</th>
                   <th className="text-left p-3 font-medium">Госномер</th>
                   <th className="text-left p-3 font-medium">Статус</th>
+                  <th className="text-center p-3 font-medium w-12"></th>
                 </tr>
               </thead>
               <tbody>
@@ -207,6 +208,18 @@ export function ClaimsPage() {
                       <span className={cn('status-badge', statusColors[claim.status])}>
                         {statusLabels[claim.status]}
                       </span>
+                    </td>
+                    <td className="p-3 text-center">
+                      <button
+                        className="p-1.5 rounded hover:bg-muted transition-colors"
+                        title="Скачать CSV"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          exportSingleClaimToCSV(claim)
+                        }}
+                      >
+                        <Download className="h-4 w-4 text-muted-foreground" />
+                      </button>
                     </td>
                   </tr>
                 ))}

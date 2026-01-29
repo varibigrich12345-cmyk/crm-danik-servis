@@ -26,6 +26,7 @@ import { cn, normalizeCarNumber, statusLabels } from '@/lib/utils'
 import { PDFPreviewModal } from './PDFPreviewModal'
 import type { Claim, ClaimStatus, Complaint, Work, Part, WorksDictionaryItem, DictionaryItem, ClientReference } from '@/types/database'
 import { useSearchClients, useCreateClient } from '@/hooks/useClients'
+import { useSearchParts, PartDictionary } from '@/hooks/useParts'
 import { exportSingleClaimToCSV } from '@/utils/csvExport'
 
 const claimSchema = z.object({
@@ -81,9 +82,15 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
   const [showPDFPreview, setShowPDFPreview] = useState(false)
   const [clientSearchQuery, setClientSearchQuery] = useState('')
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null)
-  
+  const [partSearchQueries, setPartSearchQueries] = useState<{ [key: number]: string }>({})
+  const [activePartIndex, setActivePartIndex] = useState<number | null>(null)
+
   // Поиск клиентов
   const { data: clientSuggestions = [], isLoading: isSearchingClients } = useSearchClients(clientSearchQuery)
+
+  // Поиск запчастей
+  const currentPartSearch = activePartIndex !== null ? partSearchQueries[activePartIndex] || '' : ''
+  const { data: partSuggestions = [], isLoading: isSearchingParts } = useSearchParts(currentPartSearch)
   const createClientMutation = useCreateClient()
 
   const isEditing = !!claim
@@ -377,6 +384,62 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
     setClientSearchQuery('')
   }
 
+  // Обработка ввода в поле названия запчасти
+  const handlePartInput = (index: number, value: string) => {
+    const updated = [...parts]
+    updated[index].name = value
+    setParts(updated)
+
+    setActivePartIndex(index)
+    const key = `part-${index}`
+    if (value.length >= 2) {
+      setPartSearchQueries({ ...partSearchQueries, [index]: value })
+      setShowSuggestions({ ...showSuggestions, [key]: true })
+      setActiveSuggestionIndex({ ...activeSuggestionIndex, [key]: -1 })
+    } else {
+      setPartSearchQueries({ ...partSearchQueries, [index]: '' })
+      setShowSuggestions({ ...showSuggestions, [key]: false })
+    }
+  }
+
+  // Обработка клавиатуры для автокомплита запчастей
+  const handlePartKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    const key = `part-${index}`
+    if (!showSuggestions[key] || partSuggestions.length === 0) return
+
+    const currentIndex = activeSuggestionIndex[key] ?? -1
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      const nextIndex = currentIndex < partSuggestions.length - 1 ? currentIndex + 1 : 0
+      setActiveSuggestionIndex({ ...activeSuggestionIndex, [key]: nextIndex })
+      suggestionRefs.current[`part-${index}-${nextIndex}`]?.scrollIntoView({ block: 'nearest' })
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      const prevIndex = currentIndex > 0 ? currentIndex - 1 : partSuggestions.length - 1
+      setActiveSuggestionIndex({ ...activeSuggestionIndex, [key]: prevIndex })
+      suggestionRefs.current[`part-${index}-${prevIndex}`]?.scrollIntoView({ block: 'nearest' })
+    } else if (e.key === 'Enter' && currentIndex >= 0 && currentIndex < partSuggestions.length) {
+      e.preventDefault()
+      selectPartSuggestion(index, partSuggestions[currentIndex])
+    } else if (e.key === 'Escape') {
+      setShowSuggestions({ ...showSuggestions, [key]: false })
+    }
+  }
+
+  // Выбор подсказки для запчасти
+  const selectPartSuggestion = (partIndex: number, suggestion: PartDictionary) => {
+    const updated = [...parts]
+    updated[partIndex].name = suggestion.name
+    updated[partIndex].article = suggestion.article
+    updated[partIndex].price = suggestion.default_price || 0
+    setParts(updated)
+    const key = `part-${partIndex}`
+    setShowSuggestions({ ...showSuggestions, [key]: false })
+    setPartSearchQueries({ ...partSearchQueries, [partIndex]: '' })
+    setActivePartIndex(null)
+  }
+
   const onSubmit = async (data: ClaimFormData) => {
     console.log('Profile:', profile, 'User:', user)
     if (!profile) {
@@ -385,6 +448,24 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
     }
     setIsLoading(true)
     try {
+      // Сохраняем новые запчасти в справочник
+      if (parts.length > 0) {
+        const partsToSave = parts
+          .filter(p => p.name.trim())
+          .map(p => ({
+            name: p.name.trim(),
+            article: p.article?.trim() || null,
+            default_price: p.price || null,
+          }))
+
+        if (partsToSave.length > 0) {
+          // Используем upsert с onConflict для избежания дубликатов
+          await (supabase
+            .from('part_dictionary') as any)
+            .upsert(partsToSave, { onConflict: 'name', ignoreDuplicates: true })
+        }
+      }
+
       if (isEditing && claim) {
         const updatePayload = {
           client_fio: data.client_fio,
@@ -966,7 +1047,124 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
               </Button>
             </div>
           )}
-          {activeTab === 'parts' && (<div className="space-y-4">{parts.map((part, index) => (<div key={index} className="p-4 border rounded-lg space-y-3"><div className="flex items-center justify-between"><span className="font-medium">Запчасть #{index + 1}</span><Button type="button" variant="ghost" size="sm" onClick={() => setParts(parts.filter((_, i) => i !== index))} disabled={!canEdit}><X className="h-4 w-4" /></Button></div><div className="grid grid-cols-2 gap-2"><Input placeholder="Артикул" value={part.article || ''} onChange={(e) => { const updated = [...parts]; updated[index].article = e.target.value || null; setParts(updated) }} disabled={!canEdit} /><Input placeholder="Название" value={part.name} onChange={(e) => { const updated = [...parts]; updated[index].name = e.target.value; setParts(updated) }} disabled={!canEdit} /></div><div className="grid grid-cols-2 gap-2"><Input type="number" min="1" placeholder="Кол-во" value={part.quantity} onChange={(e) => { const updated = [...parts]; updated[index].quantity = parseInt(e.target.value) || 1; setParts(updated) }} disabled={!canEdit} /><Input type="number" min="0" step="0.01" placeholder="Цена" value={part.price} onChange={(e) => { const updated = [...parts]; updated[index].price = parseFloat(e.target.value) || 0; setParts(updated) }} disabled={!canEdit} /></div></div>))}<Button type="button" variant="outline" onClick={addPart} disabled={!canEdit}><Plus className="h-4 w-4 mr-2" />Добавить запчасть</Button></div>)}
+          {activeTab === 'parts' && (
+            <div className="space-y-4">
+              {parts.map((part, index) => (
+                <div key={index} className="p-4 border rounded-lg space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium">Запчасть #{index + 1}</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setParts(parts.filter((_, i) => i !== index))}
+                      disabled={!canEdit}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input
+                      placeholder="Артикул"
+                      value={part.article || ''}
+                      onChange={(e) => {
+                        const updated = [...parts]
+                        updated[index].article = e.target.value || null
+                        setParts(updated)
+                      }}
+                      disabled={!canEdit}
+                    />
+                    <div className="relative">
+                      <Input
+                        placeholder="Название (начните вводить)"
+                        value={part.name}
+                        onChange={(e) => handlePartInput(index, e.target.value)}
+                        onKeyDown={(e) => handlePartKeyDown(index, e)}
+                        onFocus={() => {
+                          setActivePartIndex(index)
+                          if (part.name.length >= 2) {
+                            setPartSearchQueries({ ...partSearchQueries, [index]: part.name })
+                            setShowSuggestions({ ...showSuggestions, [`part-${index}`]: true })
+                          }
+                        }}
+                        onBlur={() => {
+                          setTimeout(() => {
+                            setShowSuggestions({ ...showSuggestions, [`part-${index}`]: false })
+                          }, 200)
+                        }}
+                        disabled={!canEdit}
+                      />
+                      {showSuggestions[`part-${index}`] && activePartIndex === index && (partSuggestions.length > 0 || isSearchingParts) && (
+                        <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-lg max-h-60 overflow-auto">
+                          {isSearchingParts ? (
+                            <div className="px-4 py-2 text-sm text-muted-foreground">Поиск...</div>
+                          ) : partSuggestions.length > 0 ? (
+                            partSuggestions.map((suggestion, suggestionIndex) => (
+                              <div
+                                key={suggestion.id}
+                                ref={(el) => {
+                                  suggestionRefs.current[`part-${index}-${suggestionIndex}`] = el
+                                }}
+                                className={cn(
+                                  "px-4 py-2 cursor-pointer hover:bg-accent",
+                                  activeSuggestionIndex[`part-${index}`] === suggestionIndex && "bg-accent"
+                                )}
+                                onMouseDown={(e) => {
+                                  e.preventDefault()
+                                  selectPartSuggestion(index, suggestion)
+                                }}
+                                onMouseEnter={() => {
+                                  setActiveSuggestionIndex({ ...activeSuggestionIndex, [`part-${index}`]: suggestionIndex })
+                                }}
+                              >
+                                <div className="font-medium">{suggestion.name}</div>
+                                <div className="text-sm text-muted-foreground">
+                                  {suggestion.article && <span>Арт: {suggestion.article}</span>}
+                                  {suggestion.article && suggestion.default_price && <span> — </span>}
+                                  {suggestion.default_price && <span>{suggestion.default_price} руб.</span>}
+                                </div>
+                              </div>
+                            ))
+                          ) : null}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input
+                      type="number"
+                      min="1"
+                      placeholder="Кол-во"
+                      value={part.quantity}
+                      onChange={(e) => {
+                        const updated = [...parts]
+                        updated[index].quantity = parseInt(e.target.value) || 1
+                        setParts(updated)
+                      }}
+                      disabled={!canEdit}
+                    />
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="Цена"
+                      value={part.price}
+                      onChange={(e) => {
+                        const updated = [...parts]
+                        updated[index].price = parseFloat(e.target.value) || 0
+                        setParts(updated)
+                      }}
+                      disabled={!canEdit}
+                    />
+                  </div>
+                </div>
+              ))}
+              <Button type="button" variant="outline" onClick={addPart} disabled={!canEdit}>
+                <Plus className="h-4 w-4 mr-2" />
+                Добавить запчасть
+              </Button>
+            </div>
+          )}
         </form>
         <div className="flex items-center justify-between gap-3 p-4 border-t bg-card shrink-0">
           <div className="flex items-center gap-2">
