@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
-import { X, Download, Printer, MessageCircle, Send } from 'lucide-react'
+import { X, Download, Printer, MessageCircle, Send, FileSpreadsheet } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 import type { Claim } from '@/types/database'
 import { generatePDF, downloadPDF } from '@/utils/pdfGenerator'
+import { exportSingleClaimToCSV } from '@/utils/csvExport'
 
 interface PDFPreviewModalProps {
   claim: Claim
@@ -123,6 +124,14 @@ export function PDFPreviewModal({ claim, isOpen, onClose }: PDFPreviewModalProps
             >
               <Download className="h-4 w-4 mr-2" />
               Скачать
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => exportSingleClaimToCSV(claim)}
+            >
+              <FileSpreadsheet className="h-4 w-4 mr-2" />
+              CSV
             </Button>
             <Button
               variant="outline"

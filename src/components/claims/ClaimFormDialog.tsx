@@ -26,6 +26,7 @@ import { cn, normalizeCarNumber, statusLabels } from '@/lib/utils'
 import { PDFPreviewModal } from './PDFPreviewModal'
 import type { Claim, ClaimStatus, Complaint, Work, Part, WorksDictionaryItem, DictionaryItem, ClientReference } from '@/types/database'
 import { useSearchClients, useCreateClient } from '@/hooks/useClients'
+import { exportSingleClaimToCSV } from '@/utils/csvExport'
 
 const claimSchema = z.object({
   client_fio: z.string().refine(
@@ -406,6 +407,20 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
           .eq('id', claim.id)
         if (error) throw error
         toast.success('Заявка обновлена')
+
+        // Автоматический экспорт CSV при переводе в статус "В работе"
+        if (claim.status !== 'in_progress' && status === 'in_progress') {
+          const fullClaim: Claim = {
+            ...claim,
+            ...updatePayload,
+            complaints,
+            works,
+            parts,
+            status,
+          }
+          exportSingleClaimToCSV(fullClaim)
+          toast.info('CSV для 1С скачан')
+        }
       } else {
         // Если клиент новый (не выбран из списка), добавляем в справочник
         if (!selectedClientId && data.client_fio) {

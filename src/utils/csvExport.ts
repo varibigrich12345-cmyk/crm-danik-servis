@@ -86,3 +86,77 @@ function formatDateForCSV(dateStr: string): string {
 function formatDateForFilename(date: Date): string {
   return date.toISOString().slice(0, 10).replace(/-/g, '')
 }
+
+/**
+ * Экспорт одной заявки с работами и запчастями в CSV для 1С
+ */
+export function exportSingleClaimToCSV(claim: Claim) {
+  const lines: string[] = []
+
+  // Секция ЗАЯВКА
+  lines.push('ЗАЯВКА')
+  lines.push(['Номер', claim.number].map(escapeCSV).join(';'))
+  lines.push(['Дата', formatDateForCSV(claim.created_at)].map(escapeCSV).join(';'))
+  lines.push(['Клиент', claim.client_fio].map(escapeCSV).join(';'))
+  lines.push(['Телефон', claim.phone || ''].map(escapeCSV).join(';'))
+  lines.push(['Авто', claim.car_brand].map(escapeCSV).join(';'))
+  lines.push(['Госномер', claim.car_number].map(escapeCSV).join(';'))
+  lines.push(['VIN', claim.vin || ''].map(escapeCSV).join(';'))
+  lines.push(['Пробег', claim.mileage?.toString() || ''].map(escapeCSV).join(';'))
+  lines.push('')
+
+  // Секция РАБОТЫ
+  lines.push('РАБОТЫ')
+  lines.push(['Название', 'Сторона', 'Позиция', 'Кол-во', 'Цена', 'Сумма'].map(escapeCSV).join(';'))
+  const worksTotal = claim.works?.reduce((sum, w) => {
+    const rowSum = w.price * w.quantity
+    lines.push([
+      w.name,
+      w.side || '',
+      w.position || '',
+      w.quantity.toString(),
+      w.price.toFixed(2),
+      rowSum.toFixed(2),
+    ].map(escapeCSV).join(';'))
+    return sum + rowSum
+  }, 0) || 0
+  lines.push('')
+
+  // Секция ЗАПЧАСТИ
+  lines.push('ЗАПЧАСТИ')
+  lines.push(['Артикул', 'Название', 'Сторона', 'Позиция', 'Кол-во', 'Цена', 'Сумма'].map(escapeCSV).join(';'))
+  const partsTotal = claim.parts?.reduce((sum, p) => {
+    const rowSum = p.price * p.quantity
+    lines.push([
+      p.article || '',
+      p.name,
+      p.side || '',
+      p.position || '',
+      p.quantity.toString(),
+      p.price.toFixed(2),
+      rowSum.toFixed(2),
+    ].map(escapeCSV).join(';'))
+    return sum + rowSum
+  }, 0) || 0
+  lines.push('')
+
+  // Секция ИТОГО
+  lines.push('ИТОГО')
+  lines.push(['Сумма работ', worksTotal.toFixed(2)].map(escapeCSV).join(';'))
+  lines.push(['Сумма запчастей', partsTotal.toFixed(2)].map(escapeCSV).join(';'))
+  lines.push(['Общая сумма', (worksTotal + partsTotal).toFixed(2)].map(escapeCSV).join(';'))
+
+  // BOM для корректной кириллицы в Excel/1С
+  const BOM = '\uFEFF'
+  const csvContent = BOM + lines.join('\r\n')
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `claim_${claim.number.replace(/[^a-zA-Z0-9-]/g, '_')}.csv`
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
