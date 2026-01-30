@@ -12,7 +12,7 @@ export const useRequests = (status?: RequestStatus, enabled: boolean = true) => 
     queryFn: async () => {
       let query = supabase
         .from('requests')
-        .select('*, requester:profiles!requested_by(full_name)')
+        .select('id, claim_id, type, status, requested_by, comment, resolved_by, resolved_at, created_at, requester:profiles!requested_by(full_name)')
         .order('created_at', { ascending: false })
 
       if (status) {
@@ -76,7 +76,7 @@ export const useClaimRequests = (claimId: string | undefined) => {
 
       const { data, error } = await supabase
         .from('requests')
-        .select('*, requester:profiles!requested_by(full_name)')
+        .select('id, claim_id, type, status, requested_by, comment, resolved_by, resolved_at, created_at, requester:profiles!requested_by(full_name)')
         .eq('claim_id', claimId)
         .order('created_at', { ascending: false })
 
@@ -121,7 +121,7 @@ export const useCreateRequest = () => {
           requested_by: requestedBy,
           comment: comment || null,
         })
-        .select('*, requester:profiles!requested_by(full_name)')
+        .select('id, claim_id, type, status, requested_by, comment, resolved_by, resolved_at, created_at, requester:profiles!requested_by(full_name)')
         .single()
 
       if (error) throw error
