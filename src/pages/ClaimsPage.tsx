@@ -25,7 +25,7 @@ export function ClaimsPage() {
   const [showNewClaimDialog, setShowNewClaimDialog] = useState(false)
   const [editingClaim, setEditingClaim] = useState<Claim | null>(null)
 
-  // Запрос заявок (мастер видит ВСЕ заявки)
+  // Запрос заявок с фильтром "Мои/Все"
   const { data: claims, isLoading, refetch, isRefetching } = useQuery({
     queryKey: ['claims', showMyOnly, statusFilter, profile?.id, isAdmin],
     queryFn: async () => {
@@ -34,8 +34,8 @@ export function ClaimsPage() {
         .select('*')
         .order('created_at', { ascending: false })
 
-      // Фильтр "Мои/Все" работает только для админа
-      if (isAdmin && showMyOnly) {
+      // Фильтр "Мои/Все" — работает для всех пользователей
+      if (showMyOnly) {
         query = query.eq('assigned_master_id', profile?.id || '')
       }
 
@@ -95,29 +95,27 @@ export function ClaimsPage() {
           />
         </div>
 
-        {/* Переключатель "Мои / Все" для админа */}
-        {isAdmin && (
-          <div className="flex rounded-md border overflow-hidden">
-            <button
-              className={cn(
-                'px-4 py-2 text-sm font-medium transition-colors',
-                showMyOnly ? 'bg-primary text-white' : 'hover:bg-accent'
-              )}
-              onClick={() => setShowMyOnly(true)}
-            >
-              Мои
-            </button>
-            <button
-              className={cn(
-                'px-4 py-2 text-sm font-medium transition-colors',
-                !showMyOnly ? 'bg-primary text-white' : 'hover:bg-accent'
-              )}
-              onClick={() => setShowMyOnly(false)}
-            >
-              Все
-            </button>
-          </div>
-        )}
+        {/* Переключатель "Мои / Все" для всех пользователей */}
+        <div className="flex rounded-md border overflow-hidden">
+          <button
+            className={cn(
+              'px-4 py-2 text-sm font-medium transition-colors',
+              showMyOnly ? 'bg-primary text-white' : 'hover:bg-accent'
+            )}
+            onClick={() => setShowMyOnly(true)}
+          >
+            Мои
+          </button>
+          <button
+            className={cn(
+              'px-4 py-2 text-sm font-medium transition-colors',
+              !showMyOnly ? 'bg-primary text-white' : 'hover:bg-accent'
+            )}
+            onClick={() => setShowMyOnly(false)}
+          >
+            Все
+          </button>
+        </div>
 
         {/* Фильтр по статусу */}
         <select

@@ -6,17 +6,13 @@ import type { Request, RequestType, RequestStatus } from '@/types/database'
 /**
  * Получить все запросы (для админа)
  */
-export const useRequests = (status?: RequestStatus) => {
+export const useRequests = (status?: RequestStatus, enabled: boolean = true) => {
   return useQuery({
     queryKey: ['requests', status],
     queryFn: async () => {
       let query = supabase
         .from('requests')
-        .select(`
-          *,
-          claim:claims(id, number, client_fio, car_number),
-          requester:profiles!requested_by(full_name)
-        `)
+        .select('*, requester:profiles!requested_by(full_name)')
         .order('created_at', { ascending: false })
 
       if (status) {
@@ -26,7 +22,10 @@ export const useRequests = (status?: RequestStatus) => {
       const { data, error } = await query
 
       if (error) {
-        console.error('Ошибка загрузки запросов:', error)
+        // Не логируем ошибку если таблица не существует
+        if (!error.message?.includes('does not exist')) {
+          console.error('Ошибка загрузки запросов:', error)
+        }
         return []
       }
 
@@ -35,13 +34,14 @@ export const useRequests = (status?: RequestStatus) => {
         requested_by_name: r.requester?.full_name || 'Неизвестно',
       })) as Request[]
     },
+    enabled,
   })
 }
 
 /**
  * Количество pending запросов (для бейджа)
  */
-export const usePendingRequestsCount = () => {
+export const usePendingRequestsCount = (enabled: boolean = true) => {
   return useQuery({
     queryKey: ['requests', 'pending', 'count'],
     queryFn: async () => {
@@ -51,13 +51,17 @@ export const usePendingRequestsCount = () => {
         .eq('status', 'pending')
 
       if (error) {
-        console.error('Ошибка подсчёта запросов:', error)
+        // Не логируем ошибку если таблица не существует
+        if (!error.message?.includes('does not exist')) {
+          console.error('Ошибка подсчёта запросов:', error)
+        }
         return 0
       }
 
       return count || 0
     },
-    refetchInterval: 30000, // Обновлять каждые 30 секунд
+    enabled,
+    refetchInterval: enabled ? 30000 : false, // Обновлять каждые 30 секунд только если включено
   })
 }
 
@@ -72,7 +76,7 @@ export const useClaimRequests = (claimId: string | undefined) => {
 
       const { data, error } = await supabase
         .from('requests')
-        .select('*')
+        .select('*, requester:profiles!requested_by(full_name)')
         .eq('claim_id', claimId)
         .order('created_at', { ascending: false })
 
@@ -81,7 +85,10 @@ export const useClaimRequests = (claimId: string | undefined) => {
         return []
       }
 
-      return (data || []) as Request[]
+      return (data || []).map((r: any) => ({
+        ...r,
+        requested_by_name: r.requester?.full_name || 'Неизвестно',
+      })) as Request[]
     },
     enabled: !!claimId,
   })
@@ -114,11 +121,14 @@ export const useCreateRequest = () => {
           requested_by: requestedBy,
           comment: comment || null,
         })
-        .select()
+        .select('*, requester:profiles!requested_by(full_name)')
         .single()
 
       if (error) throw error
-      return data as Request
+      return {
+        ...data,
+        requested_by_name: data.requester?.full_name || 'Неизвестно',
+      } as Request
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['requests'] })

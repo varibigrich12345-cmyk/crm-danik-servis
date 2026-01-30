@@ -32,8 +32,8 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation()
 
   // Запросы (только для админа)
-  const { data: pendingCount = 0 } = usePendingRequestsCount()
-  const { data: pendingRequests = [] } = useRequests('pending')
+  const { data: pendingCount = 0 } = usePendingRequestsCount(isAdmin)
+  const { data: pendingRequests = [] } = useRequests('pending', isAdmin)
   const resolveRequestMutation = useResolveRequest()
 
   const handleSignOut = async () => {
