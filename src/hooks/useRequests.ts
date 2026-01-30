@@ -47,7 +47,7 @@ export const usePendingRequestsCount = (enabled: boolean = true) => {
     queryFn: async () => {
       const { count, error } = await supabase
         .from('requests')
-        .select('*', { count: 'exact', head: true })
+        .select('id', { count: 'exact', head: true })
         .eq('status', 'pending')
 
       if (error) {
@@ -161,7 +161,7 @@ export const useResolveRequest = () => {
       // Получаем запрос для определения типа и claim_id
       const { data: requestData, error: fetchError } = await supabase
         .from('requests')
-        .select('*')
+        .select('id, claim_id, type, status, requested_by, comment, resolved_by, resolved_at, created_at')
         .eq('id', requestId)
         .single()
 
