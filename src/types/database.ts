@@ -11,7 +11,7 @@ export interface Request {
   status: RequestStatus
   requested_by: string
   requested_by_name?: string
-  comment: string | null
+  admin_comment: string | null
   resolved_by: string | null
   resolved_at: string | null
   created_at: string
@@ -37,6 +37,8 @@ export interface Client {
   company: string | null
   phones: string[]
   inn: string | null
+  email: string | null
+  telegram_chat_id: number | null
   created_at: string
   updated_at: string
 }

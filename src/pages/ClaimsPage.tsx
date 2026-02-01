@@ -11,11 +11,13 @@ import {
   FileText,
   Loader2,
   Download,
+  FileDown,
 } from 'lucide-react'
 import { cn, formatDate, statusLabels, statusColors, carNumberToSearchVariants } from '@/lib/utils'
 import type { Claim } from '@/types/database'
 import { ClaimFormDialog } from '@/components/claims/ClaimFormDialog'
 import { exportClaimsToCSV, exportSingleClaimToCSV } from '@/utils/csvExport'
+import { downloadPDF } from '@/utils/pdfGenerator'
 
 export function ClaimsPage() {
   const { profile, isAdmin } = useAuth()
@@ -184,7 +186,7 @@ export function ClaimsPage() {
                   <th className="text-left p-3 font-medium">Авто</th>
                   <th className="text-left p-3 font-medium">Госномер</th>
                   <th className="text-left p-3 font-medium">Статус</th>
-                  {isAdmin && <th className="text-center p-3 font-medium w-12"></th>}
+                  <th className="text-center p-3 font-medium w-24"></th>
                 </tr>
               </thead>
               <tbody>
@@ -209,21 +211,32 @@ export function ClaimsPage() {
                         {statusLabels[claim.status]}
                       </span>
                     </td>
-                    {/* CSV — только для админа */}
-                    {isAdmin && (
-                      <td className="p-3 text-center">
+                    <td className="p-3 text-center">
+                      <div className="flex items-center justify-center gap-1">
                         <button
                           className="p-1.5 rounded hover:bg-muted transition-colors"
-                          title="Скачать CSV"
+                          title="Скачать PDF"
                           onClick={(e) => {
                             e.stopPropagation()
-                            exportSingleClaimToCSV(claim)
+                            downloadPDF(claim)
                           }}
                         >
-                          <Download className="h-4 w-4 text-muted-foreground" />
+                          <FileDown className="h-4 w-4 text-muted-foreground" />
                         </button>
-                      </td>
-                    )}
+                        {isAdmin && (
+                          <button
+                            className="p-1.5 rounded hover:bg-muted transition-colors"
+                            title="Скачать CSV"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              exportSingleClaimToCSV(claim)
+                            }}
+                          >
+                            <Download className="h-4 w-4 text-muted-foreground" />
+                          </button>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -243,9 +256,21 @@ export function ClaimsPage() {
                     <p className="font-mono text-sm text-muted-foreground">{claim.number}</p>
                     <p className="font-medium">{claim.client_fio}</p>
                   </div>
-                  <span className={cn('status-badge', statusColors[claim.status])}>
-                    {statusLabels[claim.status]}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      className="p-1.5 rounded hover:bg-muted transition-colors"
+                      title="Скачать PDF"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        downloadPDF(claim)
+                      }}
+                    >
+                      <FileDown className="h-4 w-4 text-muted-foreground" />
+                    </button>
+                    <span className={cn('status-badge', statusColors[claim.status])}>
+                      {statusLabels[claim.status]}
+                    </span>
+                  </div>
                 </div>
                 <div className="flex items-center gap-4 text-sm text-muted-foreground">
                   <span>{claim.car_brand}</span>

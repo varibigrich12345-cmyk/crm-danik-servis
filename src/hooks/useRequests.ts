@@ -12,7 +12,7 @@ export const useRequests = (status?: RequestStatus, enabled: boolean = true) => 
     queryFn: async () => {
       let query = supabase
         .from('requests')
-        .select('id, claim_id, type, status, requested_by, comment, resolved_by, resolved_at, created_at, requester:profiles!requested_by(full_name)')
+        .select('id, claim_id, "type", status, requested_by, admin_comment, resolved_by, resolved_at, created_at')
         .order('created_at', { ascending: false })
 
       if (status) {
@@ -31,7 +31,7 @@ export const useRequests = (status?: RequestStatus, enabled: boolean = true) => 
 
       return (data || []).map((r: any) => ({
         ...r,
-        requested_by_name: r.requester?.full_name || 'Неизвестно',
+        requested_by_name: 'Мастер',
       })) as Request[]
     },
     enabled,
@@ -76,7 +76,7 @@ export const useClaimRequests = (claimId: string | undefined) => {
 
       const { data, error } = await supabase
         .from('requests')
-        .select('id, claim_id, type, status, requested_by, comment, resolved_by, resolved_at, created_at, requester:profiles!requested_by(full_name)')
+        .select('id, claim_id, "type", status, requested_by, admin_comment, resolved_by, resolved_at, created_at')
         .eq('claim_id', claimId)
         .order('created_at', { ascending: false })
 
@@ -87,7 +87,7 @@ export const useClaimRequests = (claimId: string | undefined) => {
 
       return (data || []).map((r: any) => ({
         ...r,
-        requested_by_name: r.requester?.full_name || 'Неизвестно',
+        requested_by_name: 'Мастер',
       })) as Request[]
     },
     enabled: !!claimId,
@@ -119,15 +119,15 @@ export const useCreateRequest = () => {
           type,
           status: 'pending',
           requested_by: requestedBy,
-          comment: comment || null,
+          admin_comment: comment || null,
         })
-        .select('id, claim_id, type, status, requested_by, comment, resolved_by, resolved_at, created_at, requester:profiles!requested_by(full_name)')
+        .select('id, claim_id, "type", status, requested_by, admin_comment, resolved_by, resolved_at, created_at')
         .single()
 
       if (error) throw error
       return {
         ...data,
-        requested_by_name: data.requester?.full_name || 'Неизвестно',
+        requested_by_name: 'Мастер',
       } as Request
     },
     onSuccess: (_, variables) => {
@@ -161,7 +161,7 @@ export const useResolveRequest = () => {
       // Получаем запрос для определения типа и claim_id
       const { data: requestData, error: fetchError } = await supabase
         .from('requests')
-        .select('id, claim_id, type, status, requested_by, comment, resolved_by, resolved_at, created_at')
+        .select('id, claim_id, "type", status, requested_by, admin_comment, resolved_by, resolved_at, created_at')
         .eq('id', requestId)
         .single()
 
