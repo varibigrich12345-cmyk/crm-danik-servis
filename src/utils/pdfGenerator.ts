@@ -102,20 +102,21 @@ const createHeader = async (title: string, date: string) => {
         logoBase64 && logoBase64.startsWith('data:image/')
           ? {
               image: logoBase64,
-              width: 80,
-              height: 80,
-              margin: [0, 0, 10, 0],
+              width: 180,
+              height: 180,
+              margin: [0, 0, 15, 0],
             }
           : { width: 0 },
-        // Реквизиты справа
+        // Реквизиты справа (выровнены по верху с логотипом)
         {
           stack: [
-            { text: COMPANY_INFO.name, fontSize: 10, bold: true },
-            { text: `ИНН: ${COMPANY_INFO.inn}`, fontSize: 9 },
-            { text: `Адрес: ${COMPANY_INFO.address}`, fontSize: 9 },
-            { text: `Тел: ${COMPANY_INFO.phone}`, fontSize: 9 },
+            { text: COMPANY_INFO.name, fontSize: 12, bold: true, margin: [0, 0, 0, 4] },
+            { text: `ИНН: ${COMPANY_INFO.inn}`, fontSize: 10, margin: [0, 0, 0, 2] },
+            { text: `Адрес: ${COMPANY_INFO.address}`, fontSize: 10, margin: [0, 0, 0, 2] },
+            { text: `Тел: ${COMPANY_INFO.phone}`, fontSize: 10 },
           ],
           width: '*',
+          margin: [0, 0, 0, 0],
         },
       ],
       margin: [0, 0, 0, 10],
