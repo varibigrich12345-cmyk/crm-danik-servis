@@ -4,16 +4,22 @@ import { toast } from 'sonner'
 
 export interface Client {
   id: string
-  name: string
-  phone: string | null
+  fio: string
+  phones: string[]
   company: string | null
-  email: string | null
+  inn: string | null
+  telegram_chat_id: string | null
   created_at: string
   updated_at: string
 }
 
+// Нормализация телефона - оставляем только цифры
+const normalizePhone = (phone: string): string => {
+  return phone.replace(/\D/g, '')
+}
+
 /**
- * Поиск клиентов по имени или телефону
+ * Поиск клиентов по ФИО или телефону
  */
 export const useSearchClients = (search: string) => {
   return useQuery({
@@ -24,20 +30,47 @@ export const useSearchClients = (search: string) => {
       }
 
       const searchLower = search.toLowerCase().trim()
+      const searchDigits = normalizePhone(search)
 
+      console.log('Поиск клиентов:', { search, searchLower, searchDigits })
+
+      // Получаем всех клиентов для поиска по ФИО и телефону
       const { data, error } = await supabase
         .from('clients')
         .select('*')
-        .or(`name.ilike.%${searchLower}%,phone.ilike.%${searchLower}%`)
-        .order('name', { ascending: true })
-        .limit(20)
+        .order('fio', { ascending: true })
+        .limit(200)
 
       if (error) {
-        console.error('Ошибка поиска клиентов:', error)
+        console.error('Ошибка поиска клиентов:', error.message, error.code, error.details)
+        if (error.code === 'PGRST301' || error.message?.includes('permission') || error.message?.includes('policy')) {
+          console.error('RLS ошибка: у пользователя нет доступа к таблице clients. Проверьте RLS политики.')
+        }
         return []
       }
 
-      return (data || []) as Client[]
+      const allClients = (data || []) as Client[]
+      console.log('Всего клиентов в базе:', allClients.length)
+
+      // Фильтруем по ФИО ИЛИ по телефону
+      const results = allClients.filter(client => {
+        // Поиск по ФИО
+        const fioMatch = client.fio?.toLowerCase().includes(searchLower)
+
+        // Поиск по телефону (нормализованному)
+        const phoneMatch = searchDigits.length >= 3 && client.phones?.some(phone => {
+          const normalizedPhone = normalizePhone(phone)
+          return normalizedPhone.includes(searchDigits)
+        })
+
+        // Поиск по компании
+        const companyMatch = client.company?.toLowerCase().includes(searchLower)
+
+        return fioMatch || phoneMatch || companyMatch
+      })
+
+      console.log('Найдено клиентов:', results.length)
+      return results.slice(0, 20)
     },
     enabled: search.length >= 3,
     staleTime: 1000 * 60,
@@ -52,18 +85,16 @@ export const useCreateClient = () => {
 
   return useMutation({
     mutationFn: async (client: {
-      name: string
-      phone: string | null
+      fio: string
+      phones: string[]
       company: string | null
-      email?: string | null
     }) => {
       const { data, error } = await (supabase
         .from('clients') as any)
         .insert({
-          name: client.name,
-          phone: client.phone || null,
+          fio: client.fio,
+          phones: client.phones,
           company: client.company || null,
-          email: client.email || null,
         })
         .select()
         .single()

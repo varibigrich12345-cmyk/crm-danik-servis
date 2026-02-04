@@ -37,8 +37,7 @@ export interface Client {
   company: string | null
   phones: string[]
   inn: string | null
-  email: string | null
-  telegram_chat_id: number | null
+  telegram_chat_id: string | null
   created_at: string
   updated_at: string
 }
@@ -46,10 +45,9 @@ export interface Client {
 // Тип для справочника клиентов (для автокомплита)
 export interface ClientReference {
   id: string
-  name: string
-  phone: string | null
+  fio: string
+  phones: string[]
   company: string | null
-  email: string | null
   created_at: string
   updated_at: string
 }

@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import type { Request, RequestType, RequestStatus } from '@/types/database'
 
 /**
- * Получить все запросы (для админа)
+ * Получить все запросы (для админа) с именами мастеров и номерами заявок
  */
 export const useRequests = (status?: RequestStatus, enabled: boolean = true) => {
   return useQuery({
@@ -12,7 +12,11 @@ export const useRequests = (status?: RequestStatus, enabled: boolean = true) => 
     queryFn: async () => {
       let query = supabase
         .from('requests')
-        .select('id, claim_id, "type", status, requested_by, admin_comment, resolved_by, resolved_at, created_at')
+        .select(`
+          id, claim_id, type, status, requested_by, comment, resolved_by, resolved_at, created_at,
+          profiles!requested_by(full_name),
+          claims!claim_id(number)
+        `)
         .order('created_at', { ascending: false })
 
       if (status) {
@@ -30,8 +34,17 @@ export const useRequests = (status?: RequestStatus, enabled: boolean = true) => 
       }
 
       return (data || []).map((r: any) => ({
-        ...r,
-        requested_by_name: 'Мастер',
+        id: r.id,
+        claim_id: r.claim_id,
+        type: r.type,
+        status: r.status,
+        requested_by: r.requested_by,
+        admin_comment: r.comment,
+        resolved_by: r.resolved_by,
+        resolved_at: r.resolved_at,
+        created_at: r.created_at,
+        requested_by_name: r.profiles?.full_name || 'Неизвестный',
+        claim: { number: r.claims?.number || 'N/A' },
       })) as Request[]
     },
     enabled,
@@ -76,7 +89,10 @@ export const useClaimRequests = (claimId: string | undefined) => {
 
       const { data, error } = await supabase
         .from('requests')
-        .select('id, claim_id, "type", status, requested_by, admin_comment, resolved_by, resolved_at, created_at')
+        .select(`
+          id, claim_id, type, status, requested_by, comment, resolved_by, resolved_at, created_at,
+          profiles!requested_by(full_name)
+        `)
         .eq('claim_id', claimId)
         .order('created_at', { ascending: false })
 
@@ -86,8 +102,16 @@ export const useClaimRequests = (claimId: string | undefined) => {
       }
 
       return (data || []).map((r: any) => ({
-        ...r,
-        requested_by_name: 'Мастер',
+        id: r.id,
+        claim_id: r.claim_id,
+        type: r.type,
+        status: r.status,
+        requested_by: r.requested_by,
+        admin_comment: r.comment,
+        resolved_by: r.resolved_by,
+        resolved_at: r.resolved_at,
+        created_at: r.created_at,
+        requested_by_name: r.profiles?.full_name || 'Неизвестный',
       })) as Request[]
     },
     enabled: !!claimId,
@@ -119,14 +143,15 @@ export const useCreateRequest = () => {
           type,
           status: 'pending',
           requested_by: requestedBy,
-          admin_comment: comment || null,
+          comment: comment || null,
         })
-        .select('id, claim_id, "type", status, requested_by, admin_comment, resolved_by, resolved_at, created_at')
+        .select('id, claim_id, type, status, requested_by, comment, resolved_by, resolved_at, created_at')
         .single()
 
       if (error) throw error
       return {
         ...data,
+        admin_comment: data.comment,
         requested_by_name: 'Мастер',
       } as Request
     },
@@ -159,14 +184,14 @@ export const useResolveRequest = () => {
       resolvedBy: string
     }) => {
       // Получаем запрос для определения типа и claim_id
-      const { data: requestData, error: fetchError } = await supabase
-        .from('requests')
-        .select('id, claim_id, "type", status, requested_by, admin_comment, resolved_by, resolved_at, created_at')
+      const { data: requestData, error: fetchError } = await (supabase
+        .from('requests') as any)
+        .select('id, claim_id, type, status, requested_by, comment, resolved_by, resolved_at, created_at')
         .eq('id', requestId)
         .single()
 
       if (fetchError) throw fetchError
-      const request = requestData as Request
+      const request = { ...requestData, admin_comment: requestData.comment } as Request
 
       // Обновляем статус запроса
       const { error: updateError } = await (supabase

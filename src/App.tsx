@@ -4,6 +4,8 @@ import { useAuth } from '@/hooks/useAuth'
 import { AuthPage } from '@/pages/AuthPage'
 import { ClaimsPage } from '@/pages/ClaimsPage'
 import { ClientsPage } from '@/pages/ClientsPage'
+import { DictionariesPage } from '@/pages/DictionariesPage'
+import { RequestsPage } from '@/pages/RequestsPage'
 import { Layout } from '@/components/layout/Layout'
 import { LoadingScreen } from '@/components/ui/loading-screen'
 
@@ -47,6 +49,22 @@ function App() {
           element={
             <ProtectedRoute>
               <ClientsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/dictionaries"
+          element={
+            <ProtectedRoute>
+              <DictionariesPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/requests"
+          element={
+            <ProtectedRoute>
+              <RequestsPage />
             </ProtectedRoute>
           }
         />

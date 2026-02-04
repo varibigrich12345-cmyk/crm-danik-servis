@@ -16,7 +16,6 @@ import {
   Trash2,
   Phone,
   Building2,
-  Mail,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -36,7 +35,7 @@ export function ClientsPage() {
       const { data, error } = await supabase
         .from('clients')
         .select('*')
-        .order('name', { ascending: true })
+        .order('fio', { ascending: true })
 
       if (error) throw error
       return data as Client[]
@@ -48,10 +47,9 @@ export function ClientsPage() {
     if (!search.trim()) return true
     const searchLower = search.toLowerCase()
     return (
-      client.name.toLowerCase().includes(searchLower) ||
-      (client.phone?.toLowerCase().includes(searchLower)) ||
-      (client.company?.toLowerCase().includes(searchLower)) ||
-      (client.email?.toLowerCase().includes(searchLower))
+      client.fio.toLowerCase().includes(searchLower) ||
+      (client.phones?.some(p => p.toLowerCase().includes(searchLower))) ||
+      (client.company?.toLowerCase().includes(searchLower))
     )
   })
 
@@ -148,10 +146,9 @@ export function ClientsPage() {
             <table className="w-full">
               <thead className="bg-muted/50">
                 <tr>
-                  <th className="text-left p-3 font-medium">Имя</th>
-                  <th className="text-left p-3 font-medium">Телефон</th>
+                  <th className="text-left p-3 font-medium">ФИО</th>
+                  <th className="text-left p-3 font-medium">Телефоны</th>
                   <th className="text-left p-3 font-medium">Компания</th>
-                  <th className="text-left p-3 font-medium">Email</th>
                   <th className="text-right p-3 font-medium">Действия</th>
                 </tr>
               </thead>
@@ -161,10 +158,9 @@ export function ClientsPage() {
                     key={client.id}
                     className="border-t hover:bg-muted/30 transition-colors"
                   >
-                    <td className="p-3 font-medium">{client.name}</td>
-                    <td className="p-3 text-sm">{client.phone || '—'}</td>
+                    <td className="p-3 font-medium">{client.fio}</td>
+                    <td className="p-3 text-sm">{client.phones?.join(', ') || '—'}</td>
                     <td className="p-3 text-sm">{client.company || '—'}</td>
-                    <td className="p-3 text-sm">{client.email || '—'}</td>
                     <td className="p-3 text-right">
                       <div className="flex items-center justify-end gap-2">
                         <Button
@@ -217,7 +213,7 @@ export function ClientsPage() {
                 className="bg-card rounded-lg border p-4"
               >
                 <div className="flex items-start justify-between mb-2">
-                  <div className="font-medium text-lg">{client.name}</div>
+                  <div className="font-medium text-lg">{client.fio}</div>
                   <div className="flex items-center gap-1">
                     <Button
                       variant="ghost"
@@ -256,22 +252,16 @@ export function ClientsPage() {
                   </div>
                 </div>
                 <div className="space-y-1 text-sm text-muted-foreground">
-                  {client.phone && (
+                  {client.phones?.length > 0 && (
                     <div className="flex items-center gap-2">
                       <Phone className="h-4 w-4" />
-                      <span>{client.phone}</span>
+                      <span>{client.phones.join(', ')}</span>
                     </div>
                   )}
                   {client.company && (
                     <div className="flex items-center gap-2">
                       <Building2 className="h-4 w-4" />
                       <span>{client.company}</span>
-                    </div>
-                  )}
-                  {client.email && (
-                    <div className="flex items-center gap-2">
-                      <Mail className="h-4 w-4" />
-                      <span>{client.email}</span>
                     </div>
                   )}
                 </div>
@@ -314,10 +304,9 @@ interface ClientFormDialogProps {
 function ClientFormDialog({ client, onClose, onSaved }: ClientFormDialogProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [formData, setFormData] = useState({
-    name: client?.name || '',
-    phone: client?.phone || '',
+    fio: client?.fio || '',
+    phone: client?.phones?.[0] || '',
     company: client?.company || '',
-    email: client?.email || '',
   })
   const [errors, setErrors] = useState<{ [key: string]: string }>({})
 
@@ -325,8 +314,8 @@ function ClientFormDialog({ client, onClose, onSaved }: ClientFormDialogProps) {
 
   const validate = () => {
     const newErrors: { [key: string]: string } = {}
-    if (!formData.name.trim()) {
-      newErrors.name = 'Имя обязательно для заполнения'
+    if (!formData.fio.trim()) {
+      newErrors.fio = 'ФИО обязательно для заполнения'
     }
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
@@ -342,10 +331,9 @@ function ClientFormDialog({ client, onClose, onSaved }: ClientFormDialogProps) {
         const { error } = await (supabase
           .from('clients') as any)
           .update({
-            name: formData.name.trim(),
-            phone: formData.phone.trim() || null,
+            fio: formData.fio.trim(),
+            phones: formData.phone.trim() ? [formData.phone.trim()] : [],
             company: formData.company.trim() || null,
-            email: formData.email.trim() || null,
           })
           .eq('id', client.id)
 
@@ -355,10 +343,9 @@ function ClientFormDialog({ client, onClose, onSaved }: ClientFormDialogProps) {
         const { error } = await (supabase
           .from('clients') as any)
           .insert({
-            name: formData.name.trim(),
-            phone: formData.phone.trim() || null,
+            fio: formData.fio.trim(),
+            phones: formData.phone.trim() ? [formData.phone.trim()] : [],
             company: formData.company.trim() || null,
-            email: formData.email.trim() || null,
           })
 
         if (error) throw error
@@ -390,14 +377,14 @@ function ClientFormDialog({ client, onClose, onSaved }: ClientFormDialogProps) {
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4">
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="name">Имя *</Label>
+              <Label htmlFor="fio">ФИО *</Label>
               <Input
-                id="name"
+                id="fio"
                 placeholder="Иванов Иван Иванович"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                value={formData.fio}
+                onChange={(e) => setFormData({ ...formData, fio: e.target.value })}
               />
-              {errors.name && <p className="text-sm text-destructive">{errors.name}</p>}
+              {errors.fio && <p className="text-sm text-destructive">{errors.fio}</p>}
             </div>
 
             <div className="space-y-2">
@@ -428,20 +415,6 @@ function ClientFormDialog({ client, onClose, onSaved }: ClientFormDialogProps) {
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="client@example.com"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="pl-9"
-                />
-              </div>
-            </div>
           </div>
         </form>
 

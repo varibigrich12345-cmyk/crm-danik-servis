@@ -17,6 +17,8 @@ import {
   XCircle,
   UserPlus,
   Edit3,
+  Book,
+  ClipboardList,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -204,13 +206,34 @@ export function Layout({ children }: LayoutProps) {
                 }}
               />
               {isAdmin && (
-                <NavItem
-                  icon={<Settings className="h-5 w-5" />}
-                  label="Настройки"
-                  onClick={() => {
-                    setSidebarOpen(false)
-                  }}
-                />
+                <>
+                  <NavItem
+                    icon={<ClipboardList className="h-5 w-5" />}
+                    label="Запросы"
+                    active={location.pathname === '/admin/requests'}
+                    badge={pendingCount > 0 ? pendingCount : undefined}
+                    onClick={() => {
+                      navigate('/admin/requests')
+                      setSidebarOpen(false)
+                    }}
+                  />
+                  <NavItem
+                    icon={<Book className="h-5 w-5" />}
+                    label="Справочники"
+                    active={location.pathname === '/admin/dictionaries'}
+                    onClick={() => {
+                      navigate('/admin/dictionaries')
+                      setSidebarOpen(false)
+                    }}
+                  />
+                  <NavItem
+                    icon={<Settings className="h-5 w-5" />}
+                    label="Настройки"
+                    onClick={() => {
+                      setSidebarOpen(false)
+                    }}
+                  />
+                </>
               )}
             </div>
 
@@ -252,10 +275,11 @@ interface NavItemProps {
   icon: React.ReactNode
   label: string
   active?: boolean
+  badge?: number
   onClick?: () => void
 }
 
-function NavItem({ icon, label, active, onClick }: NavItemProps) {
+function NavItem({ icon, label, active, badge, onClick }: NavItemProps) {
   return (
     <button
       className={cn(
@@ -267,7 +291,17 @@ function NavItem({ icon, label, active, onClick }: NavItemProps) {
       onClick={onClick}
     >
       {icon}
-      <span>{label}</span>
+      <span className="flex-1">{label}</span>
+      {badge !== undefined && badge > 0 && (
+        <span className={cn(
+          'min-w-5 h-5 px-1.5 rounded-full text-xs font-medium flex items-center justify-center',
+          active
+            ? 'bg-primary-foreground text-primary'
+            : 'bg-destructive text-white'
+        )}>
+          {badge > 99 ? '99+' : badge}
+        </span>
+      )}
     </button>
   )
 }
