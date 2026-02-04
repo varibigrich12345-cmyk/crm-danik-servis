@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
-import { validatePhone, validateRequired, validateVIN, formatPhoneInput, validateCarNumber } from '@/utils/validation'
+import { validatePhone, validateRequired, validateVIN, formatPhoneInput, warnCarNumberFormat } from '@/utils/validation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -43,10 +43,7 @@ const claimSchema = z.object({
     (val) => !validatePhone(val),
     (val) => ({ message: validatePhone(val) }),
   ),
-  car_number: z.string().refine(
-    (val) => !validateCarNumber(val),
-    (val) => ({ message: validateCarNumber(val) || 'Госномер обязателен' }),
-  ),
+  car_number: z.string().min(1, 'Госномер обязателен для заполнения'),
   car_brand: z.string().refine(
     (val) => !validateRequired(val, 'Марка авто'),
     (val) => ({ message: validateRequired(val, 'Марка авто') }),
@@ -1029,7 +1026,14 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
                     )}
                     {errors.car_brand && <p className="text-sm text-destructive">{errors.car_brand.message}</p>}
                   </div>
-                  <div className="space-y-2"><Label htmlFor="car_number">Госномер *</Label><Input id="car_number" {...register('car_number')} placeholder="А123БВ777" className="uppercase font-mono" disabled={!canEdit} />{errors.car_number && <p className="text-sm text-destructive">{errors.car_number.message}</p>}</div>
+                  <div className="space-y-2">
+                    <Label htmlFor="car_number">Госномер *</Label>
+                    <Input id="car_number" {...register('car_number')} placeholder="А123БВ777" className="uppercase font-mono" disabled={!canEdit} />
+                    {errors.car_number && <p className="text-sm text-destructive">{errors.car_number.message}</p>}
+                    {!errors.car_number && warnCarNumberFormat(watch('car_number')) && (
+                      <p className="text-sm text-yellow-600">{warnCarNumberFormat(watch('car_number'))}</p>
+                    )}
+                  </div>
                   <div className="space-y-2"><Label htmlFor="vin">VIN код</Label><Input id="vin" {...register('vin')} placeholder="WF0XXXGCDX1234567" maxLength={17} className="uppercase font-mono" disabled={!canEdit} />{errors.vin && <p className="text-sm text-destructive">{errors.vin.message}</p>}</div>
                   <div className="space-y-2"><Label htmlFor="mileage">Пробег (км) *</Label><Input id="mileage" type="number" {...register('mileage', { valueAsNumber: true })} placeholder="150000" disabled={!canEdit} />{errors.mileage && <p className="text-sm text-destructive">{errors.mileage.message}</p>}</div>
                 </div>

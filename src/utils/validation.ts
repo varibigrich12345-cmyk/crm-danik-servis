@@ -1,4 +1,86 @@
 /**
+ * Нормализация телефона - оставляем только цифры
+ */
+export function normalizePhone(phone: string): string {
+  return phone.replace(/\D/g, '')
+}
+
+/**
+ * Автоформатирование телефона в формат +7 (XXX) XXX-XX-XX
+ * @param phone - номер телефона для форматирования
+ * @returns отформатированный номер
+ */
+export function formatPhoneInput(phone: string): string {
+  const digits = normalizePhone(phone)
+
+  if (digits.length === 0) return ''
+
+  // Если начинается с 8, заменяем на 7
+  let normalized = digits
+  if (digits.length >= 1 && digits[0] === '8') {
+    normalized = '7' + digits.slice(1)
+  }
+
+  // Форматируем +7 (XXX) XXX-XX-XX
+  let result = ''
+  if (normalized.length >= 1) {
+    result = '+' + normalized[0]
+  }
+  if (normalized.length >= 2) {
+    result += ' (' + normalized.slice(1, 4)
+  }
+  if (normalized.length >= 4) {
+    result += ')'
+  }
+  if (normalized.length >= 5) {
+    result += ' ' + normalized.slice(4, 7)
+  }
+  if (normalized.length >= 8) {
+    result += '-' + normalized.slice(7, 9)
+  }
+  if (normalized.length >= 10) {
+    result += '-' + normalized.slice(9, 11)
+  }
+
+  return result
+}
+
+/**
+ * Валидация госномера - проверка на пустоту (обязательное поле)
+ * @param carNumber - госномер для проверки
+ * @returns строка с ошибкой или пустая строка
+ */
+export function validateCarNumber(carNumber: string): string {
+  if (!carNumber || !carNumber.trim()) {
+    return 'Госномер обязателен для заполнения'
+  }
+  return ''
+}
+
+/**
+ * Проверка формата госномера (предупреждение, не блокирует сохранение)
+ * @param carNumber - госномер для проверки
+ * @returns строка с предупреждением или пустая строка
+ */
+export function warnCarNumberFormat(carNumber: string): string {
+  if (!carNumber || !carNumber.trim()) {
+    return ''
+  }
+
+  const normalized = carNumber.toUpperCase().replace(/\s/g, '')
+
+  // Российский формат: буква, 3 цифры, 2 буквы, 2-3 цифры региона
+  // Допустимые буквы: АВЕКМНОРСТУХ (те что есть в латинице и кириллице)
+  const carNumberRegex = /^[АВЕКМНОРСТУХABEKMHOPCTYX]\d{3}[АВЕКМНОРСТУХABEKMHOPCTYX]{2}\d{2,3}$/
+
+  if (!carNumberRegex.test(normalized)) {
+    return 'Нестандартный формат госномера (ожидается А123АА77)'
+  }
+
+  return ''
+}
+
+/**
  * Валидация email адреса
  * @param email - email для проверки
  * @returns строка с ошибкой или пустая строка
