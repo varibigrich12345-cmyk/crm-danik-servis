@@ -2,10 +2,15 @@ import type { Claim } from '@/types/database'
 
 const WEBHOOK_URL = import.meta.env.VITE_WEBHOOK_URL
 
+interface WebhookPayload {
+  claim: Partial<Claim> & { number: string }
+  masterName: string
+}
+
 /**
  * Отправляет уведомление о новой заявке через webhook (n8n -> Telegram)
  */
-export async function sendNewClaimWebhook(claim: Partial<Claim> & { number: string }): Promise<boolean> {
+export async function sendNewClaimWebhook({ claim, masterName }: WebhookPayload): Promise<boolean> {
   if (!WEBHOOK_URL) {
     console.warn('VITE_WEBHOOK_URL не настроен, webhook не отправлен')
     return false
@@ -28,6 +33,7 @@ export async function sendNewClaimWebhook(claim: Partial<Claim> & { number: stri
           car_number: claim.car_number,
           status: claim.status,
           created_at: claim.created_at || new Date().toISOString(),
+          master_name: masterName,
         },
       }),
     })

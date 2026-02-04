@@ -654,7 +654,10 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
         toast.success('Заявка создана')
 
         // Отправляем webhook для Telegram уведомления
-        sendNewClaimWebhook(insertPayload).catch(err => {
+        sendNewClaimWebhook({
+          claim: insertPayload,
+          masterName: profile?.full_name || 'Неизвестный',
+        }).catch(err => {
           console.error('Не удалось отправить webhook:', err)
         })
 
