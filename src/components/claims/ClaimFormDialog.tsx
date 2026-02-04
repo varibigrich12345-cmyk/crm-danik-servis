@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
-import { validatePhone, validateRequired, validateVIN } from '@/utils/validation'
+import { validatePhone, validateRequired, validateVIN, formatPhoneInput, validateCarNumber } from '@/utils/validation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -31,6 +31,7 @@ import { useSearchClients, useCreateClient } from '@/hooks/useClients'
 import { useSearchParts, PartDictionary } from '@/hooks/useParts'
 import { useClaimRequests, useCreateRequest } from '@/hooks/useRequests'
 import { exportSingleClaimToCSV } from '@/utils/csvExport'
+import { sendNewClaimWebhook } from '@/utils/webhook'
 
 const claimSchema = z.object({
   client_fio: z.string().refine(
@@ -43,8 +44,8 @@ const claimSchema = z.object({
     (val) => ({ message: validatePhone(val) }),
   ),
   car_number: z.string().refine(
-    (val) => !validateRequired(val, 'Госномер'),
-    (val) => ({ message: validateRequired(val, 'Госномер') }),
+    (val) => !validateCarNumber(val),
+    (val) => ({ message: validateCarNumber(val) || 'Госномер обязателен' }),
   ),
   car_brand: z.string().refine(
     (val) => !validateRequired(val, 'Марка авто'),
@@ -92,6 +93,8 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
     formData: ClaimFormData | null
   } | null>(null)
   const [pendingFormData, setPendingFormData] = useState<ClaimFormData | null>(null)
+  const [requestDialog, setRequestDialog] = useState<{ type: 'delegation' | 'correction'; isOpen: boolean }>({ type: 'delegation', isOpen: false })
+  const [requestComment, setRequestComment] = useState('')
 
   // Поиск клиентов
   const { data: clientSuggestions = [], isLoading: isSearchingClients } = useSearchClients(clientSearchQuery)
@@ -106,9 +109,8 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
   const { data: claimRequests = [] } = useClaimRequests(claim?.id)
   const createRequestMutation = useCreateRequest()
 
-  // Найти активный запрос (pending)
+  // Найти активный запрос на делегирование (pending)
   const pendingDelegationRequest = claimRequests.find(r => r.type === 'delegation' && r.status === 'pending')
-  const pendingCorrectionRequest = claimRequests.find(r => r.type === 'correction' && r.status === 'pending')
 
   const isEditing = !!claim
   // Логика прав редактирования:
@@ -140,7 +142,7 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
   useEffect(() => {
     if (carNumber) {
       const normalized = normalizeCarNumber(carNumber)
-      if (normalized !== carNumber) setValue('car_number', normalized)
+      if (normalized !== carNumber) setValue('car_number', normalized, { shouldValidate: true })
     }
   }, [carNumber, setValue])
 
@@ -149,11 +151,15 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
     const loadWorksDictionary = async () => {
       try {
         const { data, error } = await supabase
-          .from('works_dictionary')
+          .from('work_dictionary')
           .select('*')
           .order('name', { ascending: true })
-        
-        if (error) throw error
+
+        if (error) {
+          console.error('Ошибка загрузки справочника работ:', error.message, error.code)
+          return
+        }
+        console.log('Справочник работ загружен:', data?.length || 0, 'записей')
         if (data) setWorksDictionary(data)
       } catch (error) {
         console.error('Ошибка загрузки справочника работ:', error)
@@ -161,6 +167,7 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
     }
     loadWorksDictionary()
   }, [])
+
 
   // Загрузка справочника марок автомобилей
   useEffect(() => {
@@ -170,8 +177,12 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
           .from('car_brand_dictionary')
           .select('*')
           .order('name', { ascending: true })
-        
-        if (error) throw error
+
+        if (error) {
+          console.error('Ошибка загрузки справочника марок:', error.message, error.code)
+          return
+        }
+        console.log('Справочник марок загружен:', data?.length || 0, 'записей')
         if (data) setCarBrandDictionary(data)
       } catch (error) {
         console.error('Ошибка загрузки справочника марок:', error)
@@ -180,14 +191,18 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
     loadCarBrandDictionary()
   }, [])
 
-  // Поиск подсказок для жалоб
+  // Поиск подсказок для жалоб (используем справочник работ)
   const handleComplaintInput = (index: number, value: string) => {
     const updated = [...complaints]
     updated[index].name = value
     setComplaints(updated)
 
+    // Также обновляем связанную работу
+    updateLinkedWork(index, { name: value })
+
     const key = `complaint-${index}`
     if (value.length >= 3) {
+      // Ищем в справочнике работ (он же справочник жалоб)
       const filtered = worksDictionary.filter(item =>
         item.name.toLowerCase().includes(value.toLowerCase())
       ).slice(0, 10)
@@ -197,6 +212,19 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
     } else {
       setShowSuggestions({ ...showSuggestions, [key]: false })
     }
+  }
+
+  // Обновление связанной работы по индексу жалобы
+  const updateLinkedWork = (complaintIndex: number, updates: Partial<Work>) => {
+    setWorks(prevWorks => {
+      const workIndex = prevWorks.findIndex(w => w.complaintIndex === complaintIndex)
+      if (workIndex !== -1) {
+        const updated = [...prevWorks]
+        updated[workIndex] = { ...updated[workIndex], ...updates }
+        return updated
+      }
+      return prevWorks
+    })
   }
 
   // Обработка клавиатуры для жалоб
@@ -219,31 +247,22 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
       suggestionRefs.current[`complaint-${index}-${prevIndex}`]?.scrollIntoView({ block: 'nearest' })
     } else if (e.key === 'Enter' && currentIndex >= 0 && currentIndex < fieldSuggestions.length) {
       e.preventDefault()
-      selectComplaintSuggestion(index, fieldSuggestions[currentIndex] as WorksDictionaryItem)
+      selectComplaintSuggestion(index, fieldSuggestions[currentIndex])
     } else if (e.key === 'Escape') {
       setShowSuggestions({ ...showSuggestions, [key]: false })
     }
   }
 
   // Выбор подсказки для жалобы
-  const selectComplaintSuggestion = (complaintIndex: number, suggestion: WorksDictionaryItem) => {
+  const selectComplaintSuggestion = (complaintIndex: number, suggestion: WorksDictionaryItem | DictionaryItem) => {
     const updated = [...complaints]
     updated[complaintIndex].name = suggestion.name
     setComplaints(updated)
     const key = `complaint-${complaintIndex}`
     setShowSuggestions({ ...showSuggestions, [key]: false })
 
-    // Автоматически добавляем такую же запись во вкладку Работы
-    const newWork: Work = {
-      name: suggestion.name,
-      side: null,
-      position: null,
-      quantity: 1,
-      price: 0,
-      complaintIndex: complaintIndex,
-    }
-    setWorks([...works, newWork])
-    toast.success('Работа добавлена автоматически')
+    // Обновляем связанную работу (она уже создана при addComplaint)
+    updateLinkedWork(complaintIndex, { name: suggestion.name })
   }
 
   // Поиск подсказок для работ
@@ -302,10 +321,10 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
 
   // Поиск подсказок для марки автомобиля
   const handleCarBrandInput = (value: string) => {
-    setValue('car_brand', value)
+    setValue('car_brand', value, { shouldValidate: true })
 
     const key = 'car-brand'
-    if (value.length >= 3) {
+    if (value.length >= 2) {
       const filtered = carBrandDictionary
         .filter(item => item.name.toLowerCase().includes(value.toLowerCase()))
         .sort((a, b) => a.name.localeCompare(b.name))
@@ -346,7 +365,7 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
 
   // Выбор подсказки для марки автомобиля
   const selectCarBrandSuggestion = (suggestion: DictionaryItem) => {
-    setValue('car_brand', suggestion.name)
+    setValue('car_brand', suggestion.name, { shouldValidate: true })
     const key = 'car-brand'
     setShowSuggestions({ ...showSuggestions, [key]: false })
   }
@@ -354,9 +373,11 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
   // Обработка ввода в поле ФИО или Телефон для поиска клиентов
   const handleClientInput = (value: string, field: 'fio' | 'phone') => {
     if (field === 'fio') {
-      setValue('client_fio', value)
+      setValue('client_fio', value, { shouldValidate: true })
     } else {
-      setValue('phone', value)
+      // Автоформатирование телефона
+      const formattedPhone = formatPhoneInput(value)
+      setValue('phone', formattedPhone, { shouldValidate: true })
     }
     
     // Если клиент был выбран из списка, сбрасываем выбор при изменении
@@ -402,8 +423,8 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
 
   // Выбор клиента из списка
   const selectClient = (client: ClientReference) => {
-    setValue('client_fio', client.name)
-    setValue('phone', client.phone || '')
+    setValue('client_fio', client.fio, { shouldValidate: true })
+    setValue('phone', client.phones?.[0] || '', { shouldValidate: true })
     setValue('client_company', client.company || '')
     setSelectedClientId(client.id)
     setShowSuggestions({ ...showSuggestions, 'client': false })
@@ -537,10 +558,21 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
             default_price: p.price || null,
           }))
 
-        if (partsToSave.length > 0) {
-          await (supabase
-            .from('part_dictionary') as any)
-            .upsert(partsToSave, { onConflict: 'name', ignoreDuplicates: true })
+        // Добавляем по одной, проверяя на существование
+        for (const part of partsToSave) {
+          // Проверяем, есть ли уже такая запись
+          const { data: existing } = await supabase
+            .from('part_dictionary')
+            .select('id')
+            .eq('name', part.name)
+            .maybeSingle()
+
+          // Добавляем только если не существует
+          if (!existing) {
+            await (supabase
+              .from('part_dictionary') as any)
+              .insert(part)
+          }
         }
       }
 
@@ -580,15 +612,17 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
           exportSingleClaimToCSV(fullClaim)
           toast.info('CSV для 1С скачан')
         }
+
+        // Обновляем список заявок после сохранения
+        onSaved()
       } else {
         // Если клиент новый (не выбран из списка), добавляем в справочник
         if (!selectedClientId && data.client_fio) {
           try {
             await createClientMutation.mutateAsync({
-              name: data.client_fio,
-              phone: data.phone || null,
+              fio: data.client_fio,
+              phones: data.phone ? [data.phone] : [],
               company: data.client_company || null,
-              email: null,
             })
           } catch (error) {
             console.warn('Не удалось добавить клиента в справочник:', error)
@@ -618,8 +652,15 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
           .insert(insertPayload)
         if (error) throw error
         toast.success('Заявка создана')
+
+        // Отправляем webhook для Telegram уведомления
+        sendNewClaimWebhook(insertPayload).catch(err => {
+          console.error('Не удалось отправить webhook:', err)
+        })
+
+        // После создания новой заявки закрываем форму и обновляем список
+        onSaved()
       }
-      onSaved()
     } catch (error: any) {
       console.error('Error saving claim:', error)
       toast.error('Ошибка сохранения: ' + (error.message || 'Неизвестная ошибка'))
@@ -684,7 +725,30 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
     setPendingFormData(null)
   }
 
-  const addComplaint = () => setComplaints([...complaints, { name: '', side: null, position: null, quantity: 1 }])
+  // При добавлении жалобы автоматически создаём связанную работу
+  const addComplaint = () => {
+    const newComplaintIndex = complaints.length
+    setComplaints([...complaints, { name: '', side: null, position: null, quantity: 1 }])
+    // Автоматически добавляем связанную работу
+    setWorks([...works, { name: '', side: null, position: null, quantity: 1, price: 0, complaintIndex: newComplaintIndex }])
+  }
+
+  // При удалении жалобы удаляем связанную работу и пересчитываем индексы
+  const removeComplaint = (index: number) => {
+    // Удаляем жалобу
+    setComplaints(complaints.filter((_, i) => i !== index))
+    // Удаляем связанную работу и обновляем индексы в оставшихся работах
+    setWorks(works
+      .filter(w => w.complaintIndex !== index) // Удаляем связанную работу
+      .map(w => ({
+        ...w,
+        // Уменьшаем индекс для работ, связанных с жалобами после удалённой
+        complaintIndex: w.complaintIndex !== null && w.complaintIndex > index
+          ? w.complaintIndex - 1
+          : w.complaintIndex
+      }))
+    )
+  }
   const addWork = () => setWorks([...works, { name: '', side: null, position: null, quantity: 1, price: 0, complaintIndex: null }])
   const addPart = () => setParts([...parts, { article: null, name: '', side: null, position: null, quantity: 1, price: 0 }])
 
@@ -779,10 +843,10 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
                                   setActiveSuggestionIndex({ ...activeSuggestionIndex, 'client': index })
                                 }}
                               >
-                                <div className="font-medium">{client.name}</div>
+                                <div className="font-medium">{client.fio}</div>
                                 <div className="text-sm text-muted-foreground">
-                                  {client.phone && <span>{client.phone}</span>}
-                                  {client.phone && client.company && <span> — </span>}
+                                  {client.phones?.[0] && <span>{client.phones[0]}</span>}
+                                  {client.phones?.[0] && client.company && <span> — </span>}
                                   {client.company && <span>{client.company}</span>}
                                 </div>
                               </div>
@@ -871,10 +935,10 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
                                   setActiveSuggestionIndex({ ...activeSuggestionIndex, 'client': index })
                                 }}
                               >
-                                <div className="font-medium">{client.name}</div>
+                                <div className="font-medium">{client.fio}</div>
                                 <div className="text-sm text-muted-foreground">
-                                  {client.phone && <span>{client.phone}</span>}
-                                  {client.phone && client.company && <span> — </span>}
+                                  {client.phones?.[0] && <span>{client.phones[0]}</span>}
+                                  {client.phones?.[0] && client.company && <span> — </span>}
                                   {client.company && <span>{client.company}</span>}
                                 </div>
                               </div>
@@ -924,7 +988,7 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
                       onKeyDown={handleCarBrandKeyDown}
                       onFocus={() => {
                         const value = watch('car_brand')
-                        if (value && value.length >= 3) {
+                        if (value && value.length >= 2) {
                           handleCarBrandInput(value)
                         }
                       }}
@@ -980,7 +1044,7 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
                       type="button"
                       variant="ghost"
                       size="sm"
-                      onClick={() => setComplaints(complaints.filter((_, i) => i !== index))}
+                      onClick={() => removeComplaint(index)}
                       disabled={!canEdit}
                     >
                       <X className="h-4 w-4" />
@@ -1018,7 +1082,7 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
                             )}
                             onMouseDown={(e) => {
                               e.preventDefault()
-                              selectComplaintSuggestion(index, item as WorksDictionaryItem)
+                              selectComplaintSuggestion(index, item)
                             }}
                             onMouseEnter={() => {
                               setActiveSuggestionIndex({ ...activeSuggestionIndex, [`complaint-${index}`]: suggestionIndex })
@@ -1038,9 +1102,11 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
                       className="h-10 px-3 rounded-md border bg-background text-sm"
                       value={complaint.side || ''}
                       onChange={(e) => {
+                        const side = e.target.value || null
                         const updated = [...complaints]
-                        updated[index].side = e.target.value || null
+                        updated[index].side = side
                         setComplaints(updated)
+                        updateLinkedWork(index, { side })
                       }}
                       disabled={!canEdit}
                     >
@@ -1053,9 +1119,11 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
                       className="h-10 px-3 rounded-md border bg-background text-sm"
                       value={complaint.position || ''}
                       onChange={(e) => {
+                        const position = e.target.value || null
                         const updated = [...complaints]
-                        updated[index].position = e.target.value || null
+                        updated[index].position = position
                         setComplaints(updated)
+                        updateLinkedWork(index, { position })
                       }}
                       disabled={!canEdit}
                     >
@@ -1071,9 +1139,11 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
                       min="1"
                       value={complaint.quantity}
                       onChange={(e) => {
+                        const quantity = parseInt(e.target.value) || 1
                         const updated = [...complaints]
-                        updated[index].quantity = parseInt(e.target.value) || 1
+                        updated[index].quantity = quantity
                         setComplaints(updated)
+                        updateLinkedWork(index, { quantity })
                       }}
                       disabled={!canEdit}
                     />
@@ -1153,11 +1223,21 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
                       type="number"
                       min="1"
                       placeholder="Кол-во"
-                      value={work.quantity}
+                      value={work.quantity || ''}
+                      onFocus={(e) => {
+                        if (e.target.value === '1') e.target.value = ''
+                      }}
                       onChange={(e) => {
                         const updated = [...works]
-                        updated[index].quantity = parseInt(e.target.value) || 1
+                        updated[index].quantity = parseInt(e.target.value) || 0
                         setWorks(updated)
+                      }}
+                      onBlur={(e) => {
+                        if (!e.target.value || e.target.value === '0') {
+                          const updated = [...works]
+                          updated[index].quantity = 1
+                          setWorks(updated)
+                        }
                       }}
                       disabled={!canEdit}
                     />
@@ -1166,11 +1246,21 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
                       min="0"
                       step="0.01"
                       placeholder="Цена"
-                      value={work.price}
+                      value={work.price || ''}
+                      onFocus={(e) => {
+                        if (e.target.value === '0') e.target.value = ''
+                      }}
                       onChange={(e) => {
                         const updated = [...works]
                         updated[index].price = parseFloat(e.target.value) || 0
                         setWorks(updated)
+                      }}
+                      onBlur={(e) => {
+                        if (!e.target.value) {
+                          const updated = [...works]
+                          updated[index].price = 0
+                          setWorks(updated)
+                        }
                       }}
                       disabled={!canEdit}
                     />
@@ -1304,11 +1394,21 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
                       type="number"
                       min="1"
                       placeholder="Кол-во"
-                      value={part.quantity}
+                      value={part.quantity || ''}
+                      onFocus={(e) => {
+                        if (e.target.value === '1') e.target.value = ''
+                      }}
                       onChange={(e) => {
                         const updated = [...parts]
-                        updated[index].quantity = parseInt(e.target.value) || 1
+                        updated[index].quantity = parseInt(e.target.value) || 0
                         setParts(updated)
+                      }}
+                      onBlur={(e) => {
+                        if (!e.target.value || e.target.value === '0') {
+                          const updated = [...parts]
+                          updated[index].quantity = 1
+                          setParts(updated)
+                        }
                       }}
                       disabled={!canEdit}
                     />
@@ -1317,11 +1417,21 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
                       min="0"
                       step="0.01"
                       placeholder="Цена"
-                      value={part.price}
+                      value={part.price || ''}
+                      onFocus={(e) => {
+                        if (e.target.value === '0') e.target.value = ''
+                      }}
                       onChange={(e) => {
                         const updated = [...parts]
                         updated[index].price = parseFloat(e.target.value) || 0
                         setParts(updated)
+                      }}
+                      onBlur={(e) => {
+                        if (!e.target.value) {
+                          const updated = [...parts]
+                          updated[index].price = 0
+                          setParts(updated)
+                        }
                       }}
                       disabled={!canEdit}
                     />
@@ -1337,20 +1447,12 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
         </form>
         <div className="flex flex-col gap-3 p-4 border-t bg-card shrink-0">
           {/* Статус запросов */}
-          {isEditing && claim && !isAdmin && (pendingDelegationRequest || pendingCorrectionRequest) && (
+          {isEditing && claim && !isAdmin && pendingDelegationRequest && (
             <div className="flex flex-wrap gap-2">
-              {pendingDelegationRequest && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                  <Clock className="h-3 w-3" />
-                  Запрос на делегирование ожидает
-                </span>
-              )}
-              {pendingCorrectionRequest && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                  <Clock className="h-3 w-3" />
-                  Запрос на корректировку ожидает
-                </span>
-              )}
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                <Clock className="h-3 w-3" />
+                Запрос на делегирование ожидает
+              </span>
             </div>
           )}
 
@@ -1369,68 +1471,43 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
                 </Button>
               )}
 
-              {/* Кнопка запроса делегирования — если чужая заявка и не админ */}
-              {isEditing && claim && !isAdmin && !isOwnClaim && !pendingDelegationRequest && (
+              {/* Кнопка запроса делегирования — только для заявок НЕ в статусе "Выполнено" */}
+              {isEditing && claim && !isAdmin && !isCompleted && !pendingDelegationRequest && (
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
                   onClick={() => {
-                    if (profile?.id) {
-                      createRequestMutation.mutate({
-                        claimId: claim.id,
-                        type: 'delegation',
-                        requestedBy: profile.id,
-                      })
-                    }
+                    setRequestComment('')
+                    setRequestDialog({ type: 'delegation', isOpen: true })
                   }}
-                  disabled={createRequestMutation.isPending}
                 >
                   <Send className="h-4 w-4 mr-2" />
                   Запросить делегирование
-                </Button>
-              )}
-
-              {/* Кнопка запроса корректировки — если выполненная заявка и не админ */}
-              {isEditing && claim && !isAdmin && isCompleted && !hasEditPermission && !pendingCorrectionRequest && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    if (profile?.id) {
-                      createRequestMutation.mutate({
-                        claimId: claim.id,
-                        type: 'correction',
-                        requestedBy: profile.id,
-                      })
-                    }
-                  }}
-                  disabled={createRequestMutation.isPending}
-                >
-                  <Send className="h-4 w-4 mr-2" />
-                  Запросить корректировку
                 </Button>
               )}
             </div>
 
             <div className="flex items-center gap-3">
               <Button type="button" variant="outline" onClick={onClose}>
-                Отмена
+                {canEdit ? 'Отмена' : 'Закрыть'}
               </Button>
-              <Button onClick={handleSubmit(onSubmit)} disabled={isLoading || !canEdit || !isValid}>
-                {isLoading ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Сохранение...
-                  </>
-                ) : (
-                  <>
-                    <Save className="h-4 w-4 mr-2" />
-                    Сохранить
-                  </>
-                )}
-              </Button>
+              {/* Кнопка Сохранить скрыта если нет прав на редактирование */}
+              {canEdit && (
+                <Button onClick={handleSubmit(onSubmit)} disabled={isLoading || !isValid}>
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Сохранение...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="h-4 w-4 mr-2" />
+                      Сохранить
+                    </>
+                  )}
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -1482,6 +1559,73 @@ export function ClaimFormDialog({ claim, onClose, onSaved }: ClaimFormDialogProp
               </Button>
               <Button onClick={handleAddAllNewParts}>
                 Добавить все как новые
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Диалог: Запрос на делегирование/корректировку */}
+      {requestDialog.isOpen && claim && (
+        <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-background rounded-lg shadow-lg max-w-md w-full p-4">
+            <h3 className="font-semibold mb-4">
+              {requestDialog.type === 'delegation'
+                ? 'Запрос на делегирование'
+                : 'Запрос на корректировку'}
+            </h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              {requestDialog.type === 'delegation'
+                ? 'Укажите причину, по которой вы хотите взять эту заявку на себя.'
+                : 'Укажите причину, по которой необходимо внести изменения в завершённую заявку.'}
+            </p>
+            <div className="mb-4">
+              <Label htmlFor="request-comment">Комментарий</Label>
+              <textarea
+                id="request-comment"
+                className="w-full mt-1.5 p-3 rounded-md border bg-background text-sm min-h-[100px] resize-none"
+                placeholder={
+                  requestDialog.type === 'delegation'
+                    ? 'Например: Клиент обратился ко мне напрямую...'
+                    : 'Например: Обнаружена ошибка в списке работ...'
+                }
+                value={requestComment}
+                onChange={(e) => setRequestComment(e.target.value)}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setRequestDialog({ ...requestDialog, isOpen: false })}
+              >
+                Отмена
+              </Button>
+              <Button
+                onClick={() => {
+                  if (profile?.id && claim?.id) {
+                    createRequestMutation.mutate({
+                      claimId: claim.id,
+                      type: requestDialog.type,
+                      comment: requestComment || undefined,
+                      requestedBy: profile.id,
+                    })
+                    setRequestDialog({ ...requestDialog, isOpen: false })
+                    setRequestComment('')
+                  }
+                }}
+                disabled={createRequestMutation.isPending}
+              >
+                {createRequestMutation.isPending ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Отправка...
+                  </>
+                ) : (
+                  <>
+                    <Send className="h-4 w-4 mr-2" />
+                    Отправить запрос
+                  </>
+                )}
               </Button>
             </div>
           </div>

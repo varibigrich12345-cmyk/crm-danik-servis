@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 import { Button } from '@/components/ui/button'
@@ -21,19 +22,23 @@ import { downloadPDF } from '@/utils/pdfGenerator'
 
 export function ClaimsPage() {
   const { profile, isAdmin } = useAuth()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [search, setSearch] = useState('')
   const [showMyOnly, setShowMyOnly] = useState(true)
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [showNewClaimDialog, setShowNewClaimDialog] = useState(false)
   const [editingClaim, setEditingClaim] = useState<Claim | null>(null)
 
-  // Запрос заявок с фильтром "Мои/Все"
+  // Запрос заявок с фильтром "Мои/Все" и именем мастера
   const { data: claims, isLoading, refetch, isRefetching } = useQuery({
     queryKey: ['claims', showMyOnly, statusFilter, profile?.id, isAdmin],
     queryFn: async () => {
       let query = supabase
         .from('claims')
-        .select('*')
+        .select(`
+          *,
+          master:profiles!assigned_master_id(full_name)
+        `)
         .order('created_at', { ascending: false })
 
       // Фильтр "Мои/Все" — работает для всех пользователей
@@ -49,7 +54,10 @@ export function ClaimsPage() {
       const { data, error } = await query
 
       if (error) throw error
-      return data as Claim[]
+      return (data || []).map((item: any) => ({
+        ...item,
+        master_name: item.master?.full_name || 'Неизвестный',
+      })) as (Claim & { master_name: string })[]
     },
     enabled: !!profile?.id,
   })
@@ -58,10 +66,24 @@ export function ClaimsPage() {
   const filteredClaims = claims?.filter(claim => {
     if (!search.trim()) return true
     const variants = carNumberToSearchVariants(search)
-    return variants.some(v => 
+    return variants.some(v =>
       claim.car_number.toUpperCase().includes(v)
     )
   })
+
+  // Открытие заявки по URL параметру (?claim=ID)
+  useEffect(() => {
+    const claimId = searchParams.get('claim')
+    if (claimId && claims && claims.length > 0) {
+      const claim = claims.find(c => c.id === claimId)
+      if (claim) {
+        setEditingClaim(claim)
+        setShowNewClaimDialog(true)
+        // Убираем параметр из URL
+        setSearchParams({}, { replace: true })
+      }
+    }
+  }, [claims, searchParams, setSearchParams])
 
   const handleClaimClick = (claim: Claim) => {
     setEditingClaim(claim)
@@ -185,6 +207,7 @@ export function ClaimsPage() {
                   <th className="text-left p-3 font-medium">Клиент</th>
                   <th className="text-left p-3 font-medium">Авто</th>
                   <th className="text-left p-3 font-medium">Госномер</th>
+                  <th className="text-left p-3 font-medium">Мастер</th>
                   <th className="text-left p-3 font-medium">Статус</th>
                   <th className="text-center p-3 font-medium w-24"></th>
                 </tr>
@@ -206,6 +229,7 @@ export function ClaimsPage() {
                     </td>
                     <td className="p-3">{claim.car_brand}</td>
                     <td className="p-3 font-mono">{claim.car_number}</td>
+                    <td className="p-3 text-sm">{(claim as any).master_name}</td>
                     <td className="p-3">
                       <span className={cn('status-badge', statusColors[claim.status])}>
                         {statusLabels[claim.status]}
@@ -276,8 +300,9 @@ export function ClaimsPage() {
                   <span>{claim.car_brand}</span>
                   <span className="font-mono">{claim.car_number}</span>
                 </div>
-                <div className="text-sm text-muted-foreground mt-1">
-                  {formatDate(claim.created_at)}
+                <div className="flex items-center justify-between text-sm text-muted-foreground mt-1">
+                  <span>{formatDate(claim.created_at)}</span>
+                  <span>Мастер: {(claim as any).master_name}</span>
                 </div>
               </div>
             ))}
